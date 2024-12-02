@@ -15,21 +15,30 @@ class AgentNet(nn.Module):
 
         self.fc1 = nn.Linear(obs_size, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, comm_dim)
-        self.attention = nn.MultiheadAttention(comm_dim, num_heads)
+        self.attention = nn.MultiheadAttention(embed_dim=comm_dim, num_heads=num_heads)
+
         self.fc3 = nn.Linear(comm_dim, action_dim)
 
     def encode(self, obs):
         x = F.relu(self.fc1(obs))
         x = F.relu(self.fc2(x))
-        return x
+        return x  # 输出形状：[batch_size, comm_dim]
 
     def forward(self, obs, messages):
-        hidden = self.encode(obs)
-        hidden = hidden.unsqueeze(0)  # 添加时间维度
-        messages = torch.stack(messages).unsqueeze(1)  # 添加时间维度
+        # obs: [batch_size, obs_size]
+        # messages: [n_agents - 1, batch_size, comm_dim]
+
+        hidden = self.encode(obs)  # [batch_size, comm_dim]
+        hidden = hidden.unsqueeze(0)  # [1, batch_size, comm_dim]，作为 query
+
+        # messages 已经是 [n_agents - 1, batch_size, comm_dim]，可以直接作为 key 和 value
+
+        # 计算注意力
         attn_output, _ = self.attention(hidden, messages, messages)
-        attn_output = attn_output.squeeze(0)  # 移除时间维度
-        action_logits = self.fc3(attn_output)
+        attn_output = attn_output.squeeze(0)  # [batch_size, comm_dim]
+
+        action_logits = self.fc3(attn_output)  # [batch_size, action_dim]
+
         return action_logits
 
 class TarMACNetwork(nn.Module):
@@ -46,20 +55,30 @@ class TarMACNetwork(nn.Module):
             self.agent_nets.append(AgentNet(obs_size, action_dim, hidden_dim, comm_dim, num_heads))
 
     def forward(self, obs_list):
-        # 初始化所有智能体的隐藏状态和消息
+        batch_size = obs_list[0].shape[0]  # 假设所有观察具有相同的 batch_size
+
+        # 第一步：每个智能体根据自身观察编码隐藏状态
         hiddens = []
-        messages = [torch.zeros(1, self.comm_dim) for _ in range(self.n_agents)]
-        actions = []
-        # 第一步：每个智能体根据自身观察和消息编码隐藏状态
         for i in range(self.n_agents):
-            obs = obs_list[i]
+            obs = obs_list[i]  # [batch_size, obs_size]
             agent_net = self.agent_nets[i]
-            hidden = agent_net.encode(obs)
+            hidden = agent_net.encode(obs)  # [batch_size, comm_dim]
             hiddens.append(hidden)
-        # 第二步：智能体之间进行通信，聚合消息
+
+        # 将所有隐藏状态堆叠，形成消息集合
+        # messages: [n_agents, batch_size, comm_dim]
+        messages = torch.stack(hiddens, dim=0)
+
+        actions = []
         for i in range(self.n_agents):
-            obs = obs_list[i]
+            obs = obs_list[i]  # [batch_size, obs_size]
             agent_net = self.agent_nets[i]
-            action_logits = agent_net(obs, hiddens)
+
+            # 排除自身的消息
+            other_messages = torch.cat([messages[:i], messages[i+1:]], dim=0)  # [n_agents - 1, batch_size, comm_dim]
+
+            # 计算动作 logits
+            action_logits = agent_net(obs, other_messages)  # [batch_size, action_dim]
             actions.append(action_logits)
-        return actions
+
+        return actions  # 长度为 n_agents 的列表，每个元素形状为 [batch_size, action_dim]
