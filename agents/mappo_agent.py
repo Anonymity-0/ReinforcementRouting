@@ -31,11 +31,12 @@ class MAPPOAgent:
         for i, obs in enumerate(observations):
             if np.random.rand() < epsilon:
                 action = np.random.choice(self.action_dim)
+                actions.append(action)
             else:
                 obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
                 dist = self.actors[i](obs_tensor)
                 action = dist.sample().item()
-            actions.append(action)
+                actions.append(action)
         return actions
 
     def store_experience(self, experience):
