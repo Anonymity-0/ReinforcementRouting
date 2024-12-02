@@ -6,6 +6,7 @@ import torch.optim as optim
 from networks.q_network import QNetwork
 from networks.mixer_network import MixerNetwork
 from utils.replay_buffer import ReplayBuffer
+import numpy as np
 
 class QMIXAgent:
     def __init__(self, n_agents, obs_sizes, action_dim, hidden_dim, learning_rate, device):
