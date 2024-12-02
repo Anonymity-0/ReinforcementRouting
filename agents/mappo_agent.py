@@ -34,8 +34,8 @@ class MAPPOAgent:
             else:
                 obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
                 dist = self.actors[i](obs_tensor)
-                action = dist.sample()
-            actions.append(action.item())
+                action = dist.sample().item()
+            actions.append(action)
         return actions
 
     def store_experience(self, experience):
