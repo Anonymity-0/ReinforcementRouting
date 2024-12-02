@@ -26,12 +26,15 @@ class MAPPOAgent:
 
         self.replay_buffer = ReplayBuffer(buffer_size=5000)
 
-    def select_action(self, observations):
+    def select_action(self, observations, epsilon=0.0):
         actions = []
         for i, obs in enumerate(observations):
-            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
-            dist = self.actors[i](obs_tensor)
-            action = dist.sample()
+            if np.random.rand() < epsilon:
+                action = np.random.choice(self.action_dim)
+            else:
+                obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
+                dist = self.actors[i](obs_tensor)
+                action = dist.sample()
             actions.append(action.item())
         return actions
 
