@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 
 class AgentNet(nn.Module):
     def __init__(self, obs_size, action_dim, hidden_dim, comm_dim, num_heads):
@@ -82,3 +83,37 @@ class TarMACNetwork(nn.Module):
             actions.append(action_logits)
 
         return actions  # 长度为 n_agents 的列表，每个元素形状为 [batch_size, action_dim]
+
+class TarMACAgent:
+    def __init__(self, n_agents, obs_sizes, action_dim, hidden_dim, comm_dim, num_heads, learning_rate, device):
+        self.n_agents = n_agents
+        self.obs_sizes = obs_sizes
+        self.action_dim = action_dim
+        self.device = device
+
+        # 创建 TarMAC 网络
+        self.network = TarMACNetwork(n_agents, obs_sizes, action_dim, hidden_dim, comm_dim, num_heads).to(device)
+
+        # 定义优化器
+        self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
+
+        self.replay_buffer = ReplayBuffer(buffer_size=5000)
+
+    def select_action(self, observations):
+        # observations 是一个列表，长度为 n_agents，每个元素是对应智能体的观察
+        # 将每个观察转换为张量，并添加批量维度
+        obs_tensors = [torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device) for obs in observations]
+        # obs_tensors 中的每个元素形状为 [1, obs_size]
+        self.network.eval()
+        with torch.no_grad():
+            # action_logits_list 是一个长度为 n_agents 的列表，每个元素形状为 [1, action_dim]
+            action_logits_list = self.network(obs_tensors)
+        self.network.train()
+        actions = []
+        for action_logits in action_logits_list:
+            # action_logits: [1, action_dim]
+            action_probs = torch.softmax(action_logits, dim=-1)  # [1, action_dim]
+            action = torch.argmax(action_probs, dim=-1)  # [1]
+            action = action.item()  # 转换为标量
+            actions.append(action)
+        return actions  # 返回长度为 n_agents 的动作列表
