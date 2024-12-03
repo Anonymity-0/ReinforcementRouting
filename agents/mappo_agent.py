@@ -58,11 +58,17 @@ class MAPPOAgent:
         batch_next_obs = [item[3] for item in batch]
         batch_dones = [item[4] for item in batch]
 
-        # 拼接所有智能体的观察，作为全局状态
-        global_states = [np.concatenate(obs) for obs in batch_obs]
-        global_next_states = [np.concatenate(obs) for obs in batch_next_obs]
+        # 提取每个智能体的 'cache_states' 并拼接，作为全局状态
+        global_states = [
+            np.concatenate([agent_obs['cache_states'] for agent_obs in obs])
+            for obs in batch_obs
+        ]
+        global_next_states = [
+            np.concatenate([agent_obs['cache_states'] for agent_obs in next_obs])
+            for next_obs in batch_next_obs
+        ]
 
-        # 转换为���量
+        # 转换为张量
         global_states = torch.tensor(global_states, dtype=torch.float32).to(self.device)
         global_next_states = torch.tensor(global_next_states, dtype=torch.float32).to(self.device)
         rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
@@ -79,7 +85,8 @@ class MAPPOAgent:
         # 更新 Actor 和 Critic
         actor_losses = []
         for i in range(self.n_agents):
-            obs_i = np.array([obs[i] for obs in batch_obs])
+            # 提取每个智能体的观察
+            obs_i = np.array([agent_obs['cache_states'] for agent_obs in batch_obs[i]])
             actions_i = torch.tensor([actions[i] for actions in batch_actions], dtype=torch.long).to(self.device)
 
             obs_tensor = torch.tensor(obs_i, dtype=torch.float32).to(self.device)
