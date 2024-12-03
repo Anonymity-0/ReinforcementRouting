@@ -14,13 +14,14 @@ BUFFER_SIZE = 250 * 1024 * 1024  # 缓冲区大小 (字节)
 PACKET_SIZE = 20 * 1024  # 数据包大小 (字节)
 
 class SatelliteEnv:
-    def __init__(self, service_type='delay_sensitive'):
+    def __init__(self, service_type='delay_sensitive', multi_agent=True):
         # 卫星网络参数
         self.n_orbits = 4  # 轨道数量
         self.n_sats_per_orbit = 4  # 每轨道卫星数量
         self.n_leo = self.n_orbits * self.n_sats_per_orbit  # 总 LEO 卫星数量
         self.n_meo = 4  # MEO 卫星数量（保持不变）
         self.k_paths = 5  # 可用路径数量
+        self.multi_agent = multi_agent  # 是否为多智能体
 
         # 轨道参数
         self.leo_height = 1500 * 1000  # LEO 轨道高度 (米)
@@ -114,12 +115,16 @@ class SatelliteEnv:
         return self.get_observation()
 
     def get_observation(self):
-        # 返回每个 MEO 卫星覆盖的 LEO 卫星的缓存状态集合
-        observations = []
-        for meo_leos in self.coverage:
-            obs = self.cache_state[meo_leos]
-            observations.append(obs)
-        return observations  # 返回列表，包含每个 MEO 卫星的观察
+        if self.multi_agent:
+            # 返回每个 MEO 卫星覆盖的 LEO 卫星的缓存状态集合
+            observations = []
+            for meo_leos in self.coverage:
+                obs = self.cache_state[meo_leos]
+                observations.append(obs)
+            return observations  # 返回列表，包含每个 MEO 卫星的观察
+        else:
+            # 返回单智能体的观察
+            return self.cache_state
 
     def get_candidate_paths(self, src, dst):
         # 使用 LCSS 算法获取候选路径（这里列举所有简单路径并选取最长的 k 条）
@@ -206,16 +211,41 @@ class SatelliteEnv:
             self.cache_state[i] = np.clip(self.cache_state[i] - transmitted + received, 0, self.buffer_size)
 
     def step(self, actions):
-        # actions: 每个 MEO 卫星选择的路径索引
-        total_utility = 0
-        candidate_paths = self.get_candidate_paths(self.src, self.dst)
-        # 如果没有可用的路径，结束回合
-        if not candidate_paths:
-            done = True
+        if self.multi_agent:
+            # 多智能体处理
+            total_utility = 0
+            candidate_paths = self.get_candidate_paths(self.src, self.dst)
+            # 如果没有可用的路径，结束回合
+            if not candidate_paths:
+                done = True
+                next_state = self.get_observation()
+                reward = -1  # 或者给予一个适当的奖励/惩罚
+                return next_state, reward, done
+            for i, action in enumerate(actions):
+                if action >= len(candidate_paths):
+                    action = 0  # 防止越界
+                path = candidate_paths[action]
+                # 计算 QoS 指标
+                delay, packet_loss, delivery = self.calculate_qos_metrics(path)
+                # 计算效用函数作为奖励（取负数，因为要最小化效用函数）
+                utility = -self.calculate_utility(delay, packet_loss, delivery)
+                total_utility += utility
+            # 更新缓存状态（模拟数据传输影响）
+            self.update_cache_state()
             next_state = self.get_observation()
-            reward = -1  # 或者给予一个适当的奖励/惩罚
-            return next_state, reward, done
-        for i, action in enumerate(actions):
+            done = False  # 根据需要设置结束条件
+            return next_state, total_utility, done
+        else:
+            # 单智能体处理
+            total_utility = 0
+            candidate_paths = self.get_candidate_paths(self.src, self.dst)
+            # 如果没有可用的路径，结束回合
+            if not candidate_paths:
+                done = True
+                next_state = self.get_observation()
+                reward = -1  # 或者给予一个适当的奖励/惩罚
+                return next_state, reward, done
+            action = actions  # 单智能体的动作
             if action >= len(candidate_paths):
                 action = 0  # 防止越界
             path = candidate_paths[action]
@@ -224,8 +254,8 @@ class SatelliteEnv:
             # 计算效用函数作为奖励（取负数，因为要最小化效用函数）
             utility = -self.calculate_utility(delay, packet_loss, delivery)
             total_utility += utility
-        # 更新缓存状态（模拟数据传输影响）
-        self.update_cache_state()
-        next_state = self.get_observation()
-        done = False  # 根据需要设置结束条件
-        return next_state, total_utility, done
+            # 更新缓存状态（模拟数据传输影响）
+            self.update_cache_state()
+            next_state = self.get_observation()
+            done = False  # 根据需要设置结束条件
+            return next_state, total_utility, done
