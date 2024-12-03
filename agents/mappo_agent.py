@@ -33,7 +33,22 @@ class MAPPOAgent:
                 action = np.random.choice(self.action_dim)
                 actions.append(action)
             else:
-                obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
+                # 从观察字典中提取数值特征
+                cache_states = obs.get('cache_states', [])
+                load_balance = obs.get('load_balance', 0.0)
+                connectivity = obs.get('connectivity', 0.0)
+                avg_cache = obs.get('avg_cache', 0.0)
+                src_in_region = float(obs.get('src_in_region', False))
+                dst_in_region = float(obs.get('dst_in_region', False))
+
+                # 合并所有特征为一个数组
+                combined_obs = np.concatenate([
+                    np.array(cache_states, dtype=np.float32),
+                    np.array([load_balance, connectivity, avg_cache, src_in_region, dst_in_region], dtype=np.float32)
+                ])
+
+                # 将合并后的数组转换为张量
+                obs_tensor = torch.tensor(combined_obs, dtype=torch.float32).unsqueeze(0).to(self.device)
                 dist = self.actors[i](obs_tensor)
                 action = dist.sample().item()
                 actions.append(action)
@@ -74,7 +89,7 @@ class MAPPOAgent:
         # 更新 Actor 和 Critic
         actor_losses = []
         for i in range(self.n_agents):
-            obs_i = np.array([obs[i] for obs in batch_obs])
+            obs_i = np.array([obs[i] for obs in batch_obs], dtype=np.float32)
             actions_i = torch.tensor([actions[i] for actions in batch_actions], dtype=torch.long).to(self.device)
 
             obs_tensor = torch.tensor(obs_i, dtype=torch.float32).to(self.device)
