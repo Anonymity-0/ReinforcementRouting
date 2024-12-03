@@ -2,6 +2,8 @@
 
 import numpy as np
 import networkx as nx
+import heapq
+from itertools import islice
 
 # 常数定义
 c = 3e8  # 光速 (m/s)
@@ -139,11 +141,13 @@ class SatelliteEnv:
             return self.cache_state
 
     def get_candidate_paths(self, src, dst):
-        # 使用 LCSS 算法获取候选路径（这里列举所有简单路径并选取最长的 k 条）
-        all_simple_paths = list(nx.all_simple_paths(self.leo_topology, source=src, target=dst, cutoff=4))
-        # 排序并选取前 k ���路径
-        candidate_paths = sorted(all_simple_paths, key=lambda x: len(x), reverse=True)[:self.k_paths]
-        return candidate_paths
+        # 使用 NetworkX 的 shortest_simple_paths 生成器实现 Yen 的 K 最短路径算法
+        try:
+            paths_generator = nx.shortest_simple_paths(self.leo_topology, source=src, target=dst, weight=None)
+            candidate_paths = list(islice(paths_generator, self.k_paths))
+            return candidate_paths
+        except nx.NetworkXNoPath:
+            return []
 
     def calculate_distance(self, vi, vj):
         # 计算 LEO 卫星之间的空间距离
@@ -224,7 +228,7 @@ class SatelliteEnv:
 
     def step(self, actions):
         if self.multi_agent:
-            # 多智能体���理 - 每个区域一个智能体
+            # 多智能体处理 - 每个区域一个智能体
             total_utility = 0
             candidate_paths = self.get_candidate_paths(self.src, self.dst)
             
@@ -264,7 +268,7 @@ class SatelliteEnv:
             # 计算效用函数作为奖励（取负数，因为要最小化效用函数）
             utility = -self.calculate_utility(delay, packet_loss, delivery)
             total_utility += utility
-            # 更新缓存状态（模拟数据传输影��）
+            # 更新缓存状态（模拟数据传输影响）
             self.update_cache_state()
             next_state = self.get_observation()
             done = False  # 根据需要设置结束条件
