@@ -93,7 +93,7 @@ class SatelliteEnv:
         return coverage
 
     def _build_leo_topology(self):
-        # 创建 LEO 卫星网络拓扑图（使用完全���模拟，每个卫星与所有其他卫星相连）
+        # 创建 LEO 卫星网络拓扑图（使用完全图模拟，每个卫星与所有其他卫星相连）
         G = nx.complete_graph(self.n_leo)
         return G
 
@@ -111,13 +111,15 @@ class SatelliteEnv:
                 self.dst = np.random.randint(0, self.n_leo)
         else:
             self.dst = dst
-        self.current_step = 0
         return self.get_observation()
 
     def get_observation(self):
-        # 返回单个智能体的观察，例如组合所有 MEO 卫星的观测信息
-        observation = self.cache_state  # 或根据需求定义
-        return observation
+        # 返回每个 MEO 卫星覆盖的 LEO 卫星的缓存状态集合
+        observations = []
+        for meo_leos in self.coverage:
+            obs = self.cache_state[meo_leos]
+            observations.append(obs)
+        return observations  # 返回列表，包含每个 MEO 卫星的观察
 
     def get_candidate_paths(self, src, dst):
         # 使用 LCSS 算法获取候选路径（这里列举所有简单路径并选取最长的 k 条）
@@ -203,19 +205,27 @@ class SatelliteEnv:
             received = self.packet_size * 1.5  # 固定接收量
             self.cache_state[i] = np.clip(self.cache_state[i] - transmitted + received, 0, self.buffer_size)
 
-    def step(self, action):
-        # action: 路径索引
+    def step(self, actions):
+        # actions: 每个 MEO 卫星选择的路径索引
+        total_utility = 0
         candidate_paths = self.get_candidate_paths(self.src, self.dst)
-        if action >= len(candidate_paths):
-            action = 0
-        path = candidate_paths[action]
-        # 计算 QoS 指标
-        delay, packet_loss, delivery = self.calculate_qos_metrics(path)
-        # 计算奖励
-        reward = self.calculate_utility(delay, packet_loss, delivery)
-        # 更新环境状态
+        # 如果没有可用的路径，结束回合
+        if not candidate_paths:
+            done = True
+            next_state = self.get_observation()
+            reward = -1  # 或者给予一个适当的奖励/惩罚
+            return next_state, reward, done
+        for i, action in enumerate(actions):
+            if action >= len(candidate_paths):
+                action = 0  # 防止越界
+            path = candidate_paths[action]
+            # 计算 QoS 指标
+            delay, packet_loss, delivery = self.calculate_qos_metrics(path)
+            # 计算效用函数作为奖励（取负数，因为要最小化效用函数）
+            utility = -self.calculate_utility(delay, packet_loss, delivery)
+            total_utility += utility
+        # 更新缓存状态（模拟数据传输影响）
         self.update_cache_state()
-        self.current_step += 1
-        done = self.current_step >= self.max_steps
-        next_observation = self.get_observation()
-        return next_observation, reward, done, {}
+        next_state = self.get_observation()
+        done = False  # 根据需要设置结束条件
+        return next_state, total_utility, done
