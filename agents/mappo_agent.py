@@ -33,7 +33,12 @@ class MAPPOAgent:
                 action = np.random.choice(self.action_dim)
                 actions.append(action)
             else:
-                obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
+                # 提取数值数据，例如 'cache_states'
+                if isinstance(obs, dict) and 'cache_states' in obs:
+                    obs_tensor = torch.tensor(obs['cache_states'], dtype=torch.float32).unsqueeze(0).to(self.device)
+                else:
+                    raise ValueError(f"观察数据格式错误: {obs}")
+                
                 dist = self.actors[i](obs_tensor)
                 action = dist.sample().item()
                 actions.append(action)
@@ -57,7 +62,7 @@ class MAPPOAgent:
         global_states = [np.concatenate(obs) for obs in batch_obs]
         global_next_states = [np.concatenate(obs) for obs in batch_next_obs]
 
-        # 转换为张量
+        # 转换为���量
         global_states = torch.tensor(global_states, dtype=torch.float32).to(self.device)
         global_next_states = torch.tensor(global_next_states, dtype=torch.float32).to(self.device)
         rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
