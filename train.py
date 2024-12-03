@@ -89,7 +89,7 @@ def train(agent_name, episodes=1000, steps=50, batch_size=128, gamma=0.99, learn
             else:
                 actions = agent.select_action(observations, epsilon)
 
-            next_observations, reward, done, _ = env.step(actions)
+            next_observations, reward, done = env.step(actions)
             agent.store_experience((observations, actions, reward, next_observations, done))
 
             if agent_name != 'tarmac':
