@@ -33,12 +33,7 @@ class MAPPOAgent:
                 action = np.random.choice(self.action_dim)
                 actions.append(action)
             else:
-                # 提取数值数据，例如 'cache_states'
-                if isinstance(obs, dict) and 'cache_states' in obs:
-                    obs_tensor = torch.tensor(obs['cache_states'], dtype=torch.float32).unsqueeze(0).to(self.device)
-                else:
-                    raise ValueError(f"观察数据格式错误: {obs}")
-                
+                obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
                 dist = self.actors[i](obs_tensor)
                 action = dist.sample().item()
                 actions.append(action)
@@ -58,15 +53,9 @@ class MAPPOAgent:
         batch_next_obs = [item[3] for item in batch]
         batch_dones = [item[4] for item in batch]
 
-        # 提取每个智能体的 'cache_states' 并拼接，作为全局状态
-        global_states = [
-            np.concatenate([agent_obs['cache_states'] for agent_obs in obs])
-            for obs in batch_obs
-        ]
-        global_next_states = [
-            np.concatenate([agent_obs['cache_states'] for agent_obs in next_obs])
-            for next_obs in batch_next_obs
-        ]
+        # 拼接所有智能体的观察，作为全局状态
+        global_states = [np.concatenate(obs) for obs in batch_obs]
+        global_next_states = [np.concatenate(obs) for obs in batch_next_obs]
 
         # 转换为张量
         global_states = torch.tensor(global_states, dtype=torch.float32).to(self.device)
@@ -85,8 +74,7 @@ class MAPPOAgent:
         # 更新 Actor 和 Critic
         actor_losses = []
         for i in range(self.n_agents):
-            # 提取每个智能体的观察
-            obs_i = np.array([agent_obs['cache_states'] for agent_obs in batch_obs[i]])
+            obs_i = np.array([obs[i] for obs in batch_obs])
             actions_i = torch.tensor([actions[i] for actions in batch_actions], dtype=torch.long).to(self.device)
 
             obs_tensor = torch.tensor(obs_i, dtype=torch.float32).to(self.device)
