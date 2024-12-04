@@ -66,12 +66,12 @@ class MAPPOAgent:
 
         if self.multi_agent:
             # 拼接所有智能体的观察，作为全局状态
-            global_states = [np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_obs]
-            global_next_states = [np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_next_obs]
+            global_states = np.array([np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_obs])
+            global_next_states = np.array([np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_next_obs])
         else:
             # 单智能体
-            global_states = [obs['agent_0'] for obs in batch_obs]
-            global_next_states = [obs['agent_0'] for obs in batch_next_obs]
+            global_states = np.array([obs['agent_0'] for obs in batch_obs])
+            global_next_states = np.array([obs['agent_0'] for obs in batch_next_obs])
 
         # 转换为张量
         global_states = torch.tensor(global_states, dtype=torch.float32).to(self.device)
