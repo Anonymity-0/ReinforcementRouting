@@ -94,7 +94,7 @@ class SatelliteEnv:
         return coverage
 
     def _build_leo_topology(self):
-        # 创建 LEO 卫星网络拓扑图（使用完全图模拟，每个卫星与所有其他卫星相连）
+        # 创建 LEO 卫星网络拓扑图（使用完全���模拟，每个卫星与所有其他卫星相连）
         G = nx.complete_graph(self.n_leo)
         return G
 
@@ -112,9 +112,11 @@ class SatelliteEnv:
                 self.dst = np.random.randint(0, self.n_leo)
         else:
             self.dst = dst
+        self.current_step = 0
         return self.get_observation()
 
     def get_observation(self):
+<<<<<<< HEAD
         if self.multi_agent:
             # 返回每个 MEO 卫星覆盖的 LEO 卫星的缓存状态集合
             observations = []
@@ -125,6 +127,11 @@ class SatelliteEnv:
         else:
             # 返回单智能体的观察
             return self.cache_state
+=======
+        # 返回单个智能体的观察，例如组合所有 MEO 卫星的观测信息
+        observation = self.cache_state  # 或根据需求定义
+        return observation
+>>>>>>> parent of 8aaefa0 ( update)
 
     def get_candidate_paths(self, src, dst):
         # 使用 LCSS 算法获取候选路径（这里列举所有简单路径并选取最长的 k 条）
@@ -210,6 +217,7 @@ class SatelliteEnv:
             received = self.packet_size * 1.5  # 固定接收量
             self.cache_state[i] = np.clip(self.cache_state[i] - transmitted + received, 0, self.buffer_size)
 
+<<<<<<< HEAD
     def step(self, actions):
         if self.multi_agent:
             # 多智能体处理
@@ -259,3 +267,21 @@ class SatelliteEnv:
             next_state = self.get_observation()
             done = False  # 根据需要设置结束条件
             return next_state, total_utility, done
+=======
+    def step(self, action):
+        # action: 路径索引
+        candidate_paths = self.get_candidate_paths(self.src, self.dst)
+        if action >= len(candidate_paths):
+            action = 0
+        path = candidate_paths[action]
+        # 计算 QoS 指标
+        delay, packet_loss, delivery = self.calculate_qos_metrics(path)
+        # 计算奖励
+        reward = self.calculate_utility(delay, packet_loss, delivery)
+        # 更新环境状态
+        self.update_cache_state()
+        self.current_step += 1
+        done = self.current_step >= self.max_steps
+        next_observation = self.get_observation()
+        return next_observation, reward, done, {}
+>>>>>>> parent of 8aaefa0 ( update)
