@@ -28,50 +28,26 @@ class MAPPOAgent:
         self.replay_buffer = ReplayBuffer(buffer_size=5000)
 
     def select_action(self, observations, epsilon=0.0):
-        actions = []
+        actions = {}
         if self.multi_agent:
-            for i, obs in observations.items():
+            for i, agent_id in enumerate(observations.keys()):
+                obs = observations[agent_id]
+                obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
                 if np.random.rand() < epsilon:
                     action = np.random.choice(self.action_dim)
                 else:
-                    # 从观察字典中提取数值特征
-                    cache_states = obs.get('cache_states', [])
-                    load_balance = obs.get('load_balance', 0.0)
-                    connectivity = obs.get('connectivity', 0.0)
-                    avg_cache = obs.get('avg_cache', 0.0)
-                    src_in_region = float(obs.get('src_in_region', False))
-                    dst_in_region = float(obs.get('dst_in_region', False))
-
-                    # 合并所有特征为一个数组
-                    combined_obs = np.concatenate([
-                        np.array(cache_states, dtype=np.float32),
-                        np.array([load_balance, connectivity, avg_cache, src_in_region, dst_in_region], dtype=np.float32)
-                    ])
-                    # 将合并后的数组转换为张量
-                    obs_tensor = torch.tensor(combined_obs, dtype=torch.float32).unsqueeze(0).to(self.device)
                     dist = self.actors[i](obs_tensor)
                     action = dist.sample().item()
-                actions.append(action)
+                actions[agent_id] = action
         else:
-            agent_obs = observations.get('agent_0', [])
-            # 从观察字典中提取数值特征
-            cache_states = agent_obs.get('cache_states', [])
-            load_balance = agent_obs.get('load_balance', 0.0)
-            connectivity = agent_obs.get('connectivity', 0.0)
-            avg_cache = agent_obs.get('avg_cache', 0.0)
-            src_in_region = float(agent_obs.get('src_in_region', False))
-            dst_in_region = float(agent_obs.get('dst_in_region', False))
-
-            # 合并所有特征为一个数组
-            combined_obs = np.concatenate([
-                np.array(cache_states, dtype=np.float32),
-                np.array([load_balance, connectivity, avg_cache, src_in_region, dst_in_region], dtype=np.float32)
-            ])
-            # 将合并后的数组转换为张量
-            obs_tensor = torch.tensor(combined_obs, dtype=torch.float32).unsqueeze(0).to(self.device)
-            dist = self.actors[0](obs_tensor)
-            action = dist.sample().item()
-            actions.append(action)
+            obs = observations['agent_0']
+            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
+            if np.random.rand() < epsilon:
+                action = np.random.choice(self.action_dim)
+            else:
+                dist = self.actors[0](obs_tensor)
+                action = dist.sample().item()
+            actions['agent_0'] = action
         return actions
 
     def store_experience(self, experience):
@@ -93,9 +69,9 @@ class MAPPOAgent:
             global_states = [np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_obs]
             global_next_states = [np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_next_obs]
         else:
-            # 拼接单智能体的观察，作为全局状态
-            global_states = [np.concatenate(obs['agent_0']) for obs in batch_obs]
-            global_next_states = [np.concatenate(obs['agent_0']) for obs in batch_next_obs]
+            # 单智能体
+            global_states = [obs['agent_0'] for obs in batch_obs]
+            global_next_states = [obs['agent_0'] for obs in batch_next_obs]
 
         # 转换为张量
         global_states = torch.tensor(global_states, dtype=torch.float32).to(self.device)
@@ -113,15 +89,16 @@ class MAPPOAgent:
 
         # 更新 Actor 和 Critic
         actor_losses = []
-        for i in range(self.n_agents):
+        for i, actor in enumerate(self.actors):
             if self.multi_agent:
-                obs_i = np.array([obs[i] for obs in batch_obs], dtype=np.float32)
+                obs_i = np.array([obs[agent_id] for obs, agent_id in zip(batch_obs, sorted(batch_obs[0].keys()))], dtype=np.float32)
+                actions_i = torch.tensor([actions[agent_id] for actions, agent_id in zip(batch_actions, sorted(batch_actions[0].keys()))], dtype=torch.long).to(self.device)
             else:
                 obs_i = np.array([obs['agent_0'] for obs in batch_obs], dtype=np.float32)
-            actions_i = torch.tensor([actions[i] for actions in batch_actions], dtype=torch.long).to(self.device)
+                actions_i = torch.tensor([actions['agent_0'] for actions in batch_actions], dtype=torch.long).to(self.device)
 
             obs_tensor = torch.tensor(obs_i, dtype=torch.float32).to(self.device)
-            dist = self.actors[i](obs_tensor)
+            dist = actor(obs_tensor)
             log_probs = dist.log_prob(actions_i)
 
             actor_loss = -(log_probs * advantages.detach().squeeze()).mean()
