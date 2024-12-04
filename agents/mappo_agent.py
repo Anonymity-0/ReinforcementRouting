@@ -8,11 +8,12 @@ from networks.mappo_network import MAPPOActor, MAPPOCritic
 from utils.replay_buffer import ReplayBuffer
 
 class MAPPOAgent:
-    def __init__(self, n_agents, obs_sizes, action_dim, hidden_dim, learning_rate, device):
+    def __init__(self, n_agents, obs_sizes, action_dim, hidden_dim, learning_rate, device, multi_agent=True):
         self.n_agents = n_agents
-        self.obs_sizes = obs_sizes  # 每个智能体的观测维度
+        self.obs_sizes = obs_sizes
         self.action_dim = action_dim
         self.device = device
+        self.multi_agent = multi_agent
 
         # 创建 Actor 和 Critic 网络
         self.actors = nn.ModuleList([MAPPOActor(obs_size, action_dim, hidden_dim).to(device) for obs_size in obs_sizes])
@@ -28,30 +29,49 @@ class MAPPOAgent:
 
     def select_action(self, observations, epsilon=0.0):
         actions = []
-        for i, obs in enumerate(observations):
-            if np.random.rand() < epsilon:
-                action = np.random.choice(self.action_dim)
-                actions.append(action)
-            else:
-                # 从观测字典中提取数值特征
-                cache_states = obs.get('cache_states', [])
-                load_balance = obs.get('load_balance', 0.0)
-                connectivity = obs.get('connectivity', 0.0)
-                avg_cache = obs.get('avg_cache', 0.0)
-                src_in_region = float(obs.get('src_in_region', False))
-                dst_in_region = float(obs.get('dst_in_region', False))
+        if self.multi_agent:
+            for i, obs in observations.items():
+                if np.random.rand() < epsilon:
+                    action = np.random.choice(self.action_dim)
+                else:
+                    # 从观察字典中提取数值特征
+                    cache_states = obs.get('cache_states', [])
+                    load_balance = obs.get('load_balance', 0.0)
+                    connectivity = obs.get('connectivity', 0.0)
+                    avg_cache = obs.get('avg_cache', 0.0)
+                    src_in_region = float(obs.get('src_in_region', False))
+                    dst_in_region = float(obs.get('dst_in_region', False))
 
-                # 合并所有特征为一个数组
-                combined_obs = np.concatenate([
-                    np.array(cache_states, dtype=np.float32),
-                    np.array([load_balance, connectivity, avg_cache, src_in_region, dst_in_region], dtype=np.float32)
-                ])
-
-                # 将合并后的数组转换为张量
-                obs_tensor = torch.tensor(combined_obs, dtype=torch.float32).unsqueeze(0).to(self.device)
-                dist = self.actors[i](obs_tensor)
-                action = dist.sample().item()
+                    # 合并所有特征为一个数组
+                    combined_obs = np.concatenate([
+                        np.array(cache_states, dtype=np.float32),
+                        np.array([load_balance, connectivity, avg_cache, src_in_region, dst_in_region], dtype=np.float32)
+                    ])
+                    # 将合并后的数组转换为张量
+                    obs_tensor = torch.tensor(combined_obs, dtype=torch.float32).unsqueeze(0).to(self.device)
+                    dist = self.actors[i](obs_tensor)
+                    action = dist.sample().item()
                 actions.append(action)
+        else:
+            agent_obs = observations.get('agent_0', [])
+            # 从观察字典中提取数值特征
+            cache_states = agent_obs.get('cache_states', [])
+            load_balance = agent_obs.get('load_balance', 0.0)
+            connectivity = agent_obs.get('connectivity', 0.0)
+            avg_cache = agent_obs.get('avg_cache', 0.0)
+            src_in_region = float(agent_obs.get('src_in_region', False))
+            dst_in_region = float(agent_obs.get('dst_in_region', False))
+
+            # 合并所有特征为一个数组
+            combined_obs = np.concatenate([
+                np.array(cache_states, dtype=np.float32),
+                np.array([load_balance, connectivity, avg_cache, src_in_region, dst_in_region], dtype=np.float32)
+            ])
+            # 将合并后的数组转换为张量
+            obs_tensor = torch.tensor(combined_obs, dtype=torch.float32).unsqueeze(0).to(self.device)
+            dist = self.actors[0](obs_tensor)
+            action = dist.sample().item()
+            actions.append(action)
         return actions
 
     def store_experience(self, experience):
@@ -68,9 +88,14 @@ class MAPPOAgent:
         batch_next_obs = [item[3] for item in batch]
         batch_dones = [item[4] for item in batch]
 
-        # 处理观测值，提取特征并拼接
-        global_states = [np.concatenate([self._process_observation(obs[i]) for i in range(self.n_agents)]) for obs in batch_obs]
-        global_next_states = [np.concatenate([self._process_observation(obs[i]) for i in range(self.n_agents)]) for obs in batch_next_obs]
+        if self.multi_agent:
+            # 拼接所有智能体的观察，作为全局状态
+            global_states = [np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_obs]
+            global_next_states = [np.concatenate([obs[agent_id] for agent_id in sorted(obs.keys())]) for obs in batch_next_obs]
+        else:
+            # 拼接单智能体的观察，作为全局状态
+            global_states = [np.concatenate(obs['agent_0']) for obs in batch_obs]
+            global_next_states = [np.concatenate(obs['agent_0']) for obs in batch_next_obs]
 
         # 转换为张量
         global_states = torch.tensor(global_states, dtype=torch.float32).to(self.device)
@@ -89,8 +114,10 @@ class MAPPOAgent:
         # 更新 Actor 和 Critic
         actor_losses = []
         for i in range(self.n_agents):
-            obs_i = [self._process_observation(obs[i]) for obs in batch_obs]
-            obs_i = np.array(obs_i, dtype=np.float32)
+            if self.multi_agent:
+                obs_i = np.array([obs[i] for obs in batch_obs], dtype=np.float32)
+            else:
+                obs_i = np.array([obs['agent_0'] for obs in batch_obs], dtype=np.float32)
             actions_i = torch.tensor([actions[i] for actions in batch_actions], dtype=torch.long).to(self.device)
 
             obs_tensor = torch.tensor(obs_i, dtype=torch.float32).to(self.device)
@@ -107,37 +134,3 @@ class MAPPOAgent:
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
-
-    def _process_observation(self, obs):
-        # 处理单个智能体的观测，转换为一维numpy数组
-        cache_states = obs.get('cache_states', [])
-        load_balance = obs.get('load_balance', 0.0)
-        connectivity = obs.get('connectivity', 0.0)
-        avg_cache = obs.get('avg_cache', 0.0)
-        src_in_region = float(obs.get('src_in_region', False))
-        dst_in_region = float(obs.get('dst_in_region', False))
-
-        # 合并所有特征为一个数组
-        combined_obs = np.concatenate([
-            np.array(cache_states, dtype=np.float32),
-            np.array([load_balance, connectivity, avg_cache, src_in_region, dst_in_region], dtype=np.float32)
-        ])
-        return combined_obs
-
-    # 保存模型
-    def save(self, filepath):
-        torch.save({
-            'actors': [actor.state_dict() for actor in self.actors],
-            'critic': self.critic.state_dict(),
-            'optimizer': self.optimizer.state_dict()
-        }, filepath)
-        print(f"模型已保存到 {filepath}")
-
-    # 加载模型
-    def load(self, filepath):
-        checkpoint = torch.load(filepath, map_location=self.device)
-        for actor, state_dict in zip(self.actors, checkpoint['actors']):
-            actor.load_state_dict(state_dict)
-        self.critic.load_state_dict(checkpoint['critic'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        print(f"模型已从 {filepath} 加载")

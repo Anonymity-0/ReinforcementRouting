@@ -19,7 +19,6 @@ class SatelliteEnv:
         self.n_orbits = 4  # 轨道数量
         self.n_sats_per_orbit = 4  # 每轨道卫星数量
         self.n_leo = self.n_orbits * self.n_sats_per_orbit  # 总 LEO 卫星数量
-        self.n_meo = 4  # MEO 卫星数量（保持不变）
         self.k_paths = 5  # 可用路径数量
         self.multi_agent = multi_agent  # 是否为多智能体
 
@@ -54,8 +53,7 @@ class SatelliteEnv:
         self.leo_positions = self._initialize_positions()
         self.cache_state = np.zeros(self.n_leo)  # 每个 LEO 卫星的缓存状态
 
-        # 初始化覆盖和拓扑
-        self.coverage = self._initialize_coverage()
+        # 初始化拓扑
         self.leo_topology = self._build_leo_topology()
 
     def _initialize_positions(self):
@@ -81,20 +79,8 @@ class SatelliteEnv:
 
         return positions
 
-    def _initialize_coverage(self):
-        # 初始化每个 MEO 卫星覆盖的 LEO 卫星
-        coverage = []
-        satellites_per_meo = self.n_leo // self.n_meo
-        for i in range(self.n_meo):
-            start = i * satellites_per_meo
-            end = (i + 1) * satellites_per_meo
-            if i == self.n_meo - 1:
-                end = self.n_leo  # 确保覆盖所有 LEO 卫星
-            coverage.append(list(range(start, end)))
-        return coverage
-
     def _build_leo_topology(self):
-        # 创建 LEO 卫星网络拓扑图（使用完全���模拟，每个卫星与所有其他卫星相连）
+        # 创建 LEO 卫星网络拓扑图（使用完全图模拟，每个卫星与所有其他卫星相连）
         G = nx.complete_graph(self.n_leo)
         return G
 
@@ -116,29 +102,25 @@ class SatelliteEnv:
         return self.get_observation()
 
     def get_observation(self):
-<<<<<<< HEAD
         if self.multi_agent:
-            # 返回每个 MEO 卫星覆盖的 LEO 卫星的缓存状态集合
+            # 返回每个卫星的缓存状态
             observations = []
-            for meo_leos in self.coverage:
-                obs = self.cache_state[meo_leos]
-                observations.append(obs)
-            return observations  # 返回列表，包含每个 MEO 卫星的观察
+            for leo_idx in range(self.n_leo):
+                obs = self.cache_state[leo_idx]
+                observations.append([obs])  # 每个观测是一个列表
+            return observations  # 返回列表，包含每个 LEO 卫星的观察
         else:
             # 返回单智能体的观察
             return self.cache_state
-=======
-        # 返回单个智能体的观察，例如组合所有 MEO 卫星的观测信息
-        observation = self.cache_state  # 或根据需求定义
-        return observation
->>>>>>> parent of 8aaefa0 ( update)
 
     def get_candidate_paths(self, src, dst):
-        # 使用 LCSS 算法获取候选路径（这里列举所有简单路径并选取最长的 k 条）
-        all_simple_paths = list(nx.all_simple_paths(self.leo_topology, source=src, target=dst, cutoff=4))
-        # 排序并选取前 k 条路径
-        candidate_paths = sorted(all_simple_paths, key=lambda x: len(x), reverse=True)[:self.k_paths]
-        return candidate_paths
+        # 使用 Dijkstra 算法获取候选路径
+        try:
+            paths = list(nx.all_simple_paths(self.leo_topology, source=src, target=dst, cutoff=4))
+            candidate_paths = sorted(paths, key=lambda x: len(x))[:self.k_paths]
+            return candidate_paths
+        except nx.NetworkXNoPath:
+            return []
 
     def calculate_distance(self, vi, vj):
         # 计算 LEO 卫星之间的空间距离
@@ -147,9 +129,9 @@ class SatelliteEnv:
         distance = np.linalg.norm(pos_i - pos_j)
         return distance
 
-    def calculate_path_loss(self, ei_j):
+    def calculate_path_loss(self, distance):
         epsilon = 1e-6  # 小常数，防止除以零
-        path_loss = 20 * np.log10(4 * np.pi * (ei_j + epsilon) / WISL)
+        path_loss = 20 * np.log10(4 * np.pi * (distance + epsilon) / WISL)
         return path_loss
 
     def calculate_max_rate(self, path_loss, bandwidth=1e7):
@@ -217,7 +199,6 @@ class SatelliteEnv:
             received = self.packet_size * 1.5  # 固定接收量
             self.cache_state[i] = np.clip(self.cache_state[i] - transmitted + received, 0, self.buffer_size)
 
-<<<<<<< HEAD
     def step(self, actions):
         if self.multi_agent:
             # 多智能体处理
@@ -267,21 +248,3 @@ class SatelliteEnv:
             next_state = self.get_observation()
             done = False  # 根据需要设置结束条件
             return next_state, total_utility, done
-=======
-    def step(self, action):
-        # action: 路径索引
-        candidate_paths = self.get_candidate_paths(self.src, self.dst)
-        if action >= len(candidate_paths):
-            action = 0
-        path = candidate_paths[action]
-        # 计算 QoS 指标
-        delay, packet_loss, delivery = self.calculate_qos_metrics(path)
-        # 计算奖励
-        reward = self.calculate_utility(delay, packet_loss, delivery)
-        # 更新环境状态
-        self.update_cache_state()
-        self.current_step += 1
-        done = self.current_step >= self.max_steps
-        next_observation = self.get_observation()
-        return next_observation, reward, done, {}
->>>>>>> parent of 8aaefa0 ( update)
