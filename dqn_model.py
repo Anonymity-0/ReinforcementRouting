@@ -83,6 +83,7 @@ class DQNAgent:
         if len(state) < expected_length:
             state.extend([0.0] * (expected_length - len(state)))
         
+        # 确保返回的是Tensor
         return torch.FloatTensor(state).to(self.device)
 
     def get_candidate_actions(self, current_leo, destination, env, available_actions):
@@ -137,7 +138,7 @@ class DQNAgent:
             return random.choice(non_loop_actions)
         
         # 利用
-        state = torch.FloatTensor(state).to(self.device)
+        state = torch.FloatTensor(state).to(self.device)  # 确保state是Tensor
         with torch.no_grad():
             action_values = self.policy_net(state)
         
