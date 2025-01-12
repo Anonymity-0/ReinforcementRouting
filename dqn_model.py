@@ -54,42 +54,55 @@ class DQNAgent:
         """获取当前状态表示"""
         # 初始化固定长度的状态向量
         state = np.zeros(18)
-        current_idx = 0
         
-        # 1. 获取与邻居节点的链路性能指标
-        current_metrics = []
-        for neighbor in env.leo_nodes[current_leo].connected_satellites:
-            metrics = env._calculate_link_metrics(current_leo, neighbor)
-            if metrics:
-                # 归一化指标
-                delay = metrics['delay'] / 100.0
-                bandwidth = metrics['bandwidth'] / 20.0
-                loss = metrics['loss'] / 100.0
-                traffic = (env.links_dict.get((current_leo, neighbor)) or 
-                          env.links_dict.get((neighbor, current_leo))).traffic / QUEUE_CAPACITY
-                
-                # 添加到指标列表
-                current_metrics.extend([delay, bandwidth, loss, traffic])
+        try:
+            # 1. 获取与邻居节点的链路性能指标（最多4个邻居，每个邻居4个指标）
+            neighbor_count = 0
+            for neighbor in env.leo_nodes[current_leo].connected_satellites:
+                if neighbor_count >= 4:  # 限制最多处理4个邻居
+                    break
+                    
+                metrics = env._calculate_link_metrics(current_leo, neighbor)
+                if metrics:
+                    # 归一化指标
+                    base_idx = neighbor_count * 4
+                    state[base_idx] = metrics['delay'] / 100.0  # 延迟归一化
+                    state[base_idx + 1] = metrics['bandwidth'] / 20.0  # 带宽归一化
+                    state[base_idx + 2] = metrics['loss'] / 100.0  # 丢包率归一化
+                    
+                    # 获取链路对象并归一化流量
+                    link = (env.links_dict.get((current_leo, neighbor)) or 
+                           env.links_dict.get((neighbor, current_leo)))
+                    if link:
+                        state[base_idx + 3] = link.traffic / QUEUE_CAPACITY
+                    
+                neighbor_count += 1
+            
+            # 2. 添加目标LEO的位置信息和区域信息
+            dest_meo = self.leo_to_meo[destination_leo]
+            current_meo = self.leo_to_meo[current_leo]
+            state[16] = 1.0 if dest_meo == current_meo else 0.0
+            
+            # 3. 获取最小交叉区域大小并归一化
+            cross_region_size = env.get_cross_region_size(current_leo, destination_leo)
+            state[17] = min(cross_region_size / 32.0, 1.0)
+            
+        except Exception as e:
+            print(f"生成状态向量时出错: {str(e)}")
+            # 即使出错也确保返回18维向量
         
-        # 2. 添加目标LEO的位置信息和区域信息
-        dest_meo = self.leo_to_meo[destination_leo]
-        current_meo = self.leo_to_meo[current_leo]
-        same_region = 1.0 if dest_meo == current_meo else 0.0
+        # 确保所有值都在[0,1]范围内
+        state = np.clip(state, 0, 1)
         
-        # 3. 获取最小交叉区域大小并归一化
-        cross_region_size = min(env.get_cross_region_size(current_leo, destination_leo) / 32.0, 1.0)
+        # 转换为Tensor并确保维度正确
+        state_tensor = torch.FloatTensor(state).to(self.device)
+        if state_tensor.size(0) != 18:
+            # 如果维度不正确，进行填充或截断
+            correct_size_tensor = torch.zeros(18, device=self.device)
+            correct_size_tensor[:min(18, state_tensor.size(0))] = state_tensor[:min(18, state_tensor.size(0))]
+            state_tensor = correct_size_tensor
         
-        # 4. 填充状态向量
-        # 前16个位置用于链路性能指标（最多4个邻居，每个邻居4个指标）
-        for i, metric in enumerate(current_metrics[:16]):
-            state[i] = metric
-        
-        # 最后两个位置分别用于区域信息和交叉区域大小
-        state[16] = same_region
-        state[17] = cross_region_size
-        
-        # 确保返回的是正确维度的Tensor
-        return torch.FloatTensor(state).to(self.device)
+        return state_tensor
 
     def get_candidate_actions(self, current_leo, destination, env, available_actions):
         """获取候选动作"""
