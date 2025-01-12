@@ -594,181 +594,98 @@ class SatelliteEnv:
         return state
     def _find_k_shortest_paths_with_cross_region(self, source, destination, k, graph):
         """基于最小交叉区域的k最短路径算法"""
-        # 确保正确获取MEO区域
+        # 获取源和目标的MEO区域
         source_meo = self.leo_to_meo[source]
         dest_meo = self.leo_to_meo[destination]
         
         print(f"\n开始寻找从 {source}({source_meo}) 到 {destination}({dest_meo}) 的路径")
         
-        # 确保是跨区域路径
+        # 如果在同一MEO区域，使用普通的最短路径算法
         if source_meo == dest_meo:
-            print("源和目标在同一MEO区域，不是跨区域路径")
-            return []
-        
-        # 更新MEO控制器状态
-        for controller in self.meo_controllers.values():
-            controller.collect_leo_states()
-            controller.exchange_states([c for c in self.meo_controllers.values() if c != controller])
-        
-        # 获取交叉区域
+            paths = []
+            excluded_nodes = set()
+            for _ in range(k):
+                path, _ = self._dijkstra(source, destination, excluded_nodes)
+                if path and len(path) >= 2:
+                    paths.append(path)
+                    excluded_nodes.update(path[1:-1])
+            return paths
+
+        # 找到交叉区域节点
         cross_region = set()
-        for leo_name, leo_node in self.leo_nodes.items():
-            if (self.leo_to_meo[leo_name] == source_meo and 
-                any(self.leo_to_meo[neighbor] == dest_meo for neighbor in self.leo_neighbors[leo_name])):
-                cross_region.add(leo_name)
+        for leo1, neighbors in self.leo_neighbors.items():
+            meo1 = self.leo_to_meo[leo1]
+            for leo2 in neighbors:
+                meo2 = self.leo_to_meo[leo2]
+                if ((meo1 == source_meo and meo2 == dest_meo) or 
+                    (meo1 == dest_meo and meo2 == source_meo)):
+                    cross_region.add(leo1)
+                    cross_region.add(leo2)
         
         print(f"找到的交叉区域节点: {cross_region}")
+        
+        if not cross_region:
+            # 如果没有直接的交叉区域，尝试通过中间MEO区域寻找路径
+            all_meos = set(self.leo_to_meo.values())
+            intermediate_meos = all_meos - {source_meo, dest_meo}
+            
+            for inter_meo in intermediate_meos:
+                # 找到与源MEO和目标MEO相邻的节点
+                source_boundary = self._find_boundary_between_meos(source_meo, inter_meo)
+                dest_boundary = self._find_boundary_between_meos(inter_meo, dest_meo)
+                
+                if source_boundary and dest_boundary:
+                    cross_region.update(source_boundary)
+                    cross_region.update(dest_boundary)
         
         if not cross_region:
             print("未找到交叉区域节点")
             return []
         
-        unique_paths = set()
-        paths_with_costs = []
-        
-        def is_valid_path(path):
-            """检查路径是否有效（无回路且正确跨区域）"""
-            # 检查回路
-            if len(path) != len(set(path)):
-                return False
-            
-            # 检查是否正确跨区域
-            crossed = False
-            for i in range(len(path)-1):
-                curr_meo = self.leo_to_meo[path[i]]
-                next_meo = self.leo_to_meo[path[i+1]]
-                if curr_meo != next_meo:
-                    crossed = True
-                    break
-            return crossed
-        
-        # 对每个交叉区域节点
+        # 使用交叉区域节点构建路径
+        paths = []
         for boundary_leo in cross_region:
-            if boundary_leo == source or boundary_leo == destination:
-                continue
-            
-            # 找到源到边界的路径
+            # 源到边界的路径
             source_paths = []
             excluded_nodes = set()
+            for _ in range(k):
+                path1, _ = self._dijkstra(source, boundary_leo, excluded_nodes)
+                if path1 and len(path1) >= 2:
+                    source_paths.append(path1)
+                    excluded_nodes.update(path1[1:-1])
             
-            # 为源到边界找到k条路径
-            for i in range(k):
-                path, cost = self._dijkstra(source, boundary_leo, excluded_nodes)
-                if path is None or len(path) < 2:
-                    break
-                if len(set(path)) == len(path):  # 确保没有回路
-                    source_paths.append((path, cost))
-                excluded_nodes.update(path[1:-1])
-            
-            # 为边界到目标找到k条路径
-            boundary_paths = []
+            # 边界到目标的路径
+            dest_paths = []
             excluded_nodes = set()
-            
-            for i in range(k):
-                path, cost = self._dijkstra(boundary_leo, destination, excluded_nodes)
-                if path is None or len(path) < 2:
-                    break
-                if len(set(path)) == len(path):  # 确保没有回路
-                    boundary_paths.append((path, cost))
-                excluded_nodes.update(path[1:-1])
+            for _ in range(k):
+                path2, _ = self._dijkstra(boundary_leo, destination, excluded_nodes)
+                if path2 and len(path2) >= 2:
+                    dest_paths.append(path2)
+                    excluded_nodes.update(path2[1:-1])
             
             # 组合路径
-            for path1, cost1 in source_paths:
-                for path2, cost2 in boundary_paths:
+            for path1 in source_paths:
+                for path2 in dest_paths:
                     combined_path = path1[:-1] + path2
-                    if (len(combined_path) <= MAX_PATH_LENGTH and 
-                        is_valid_path(combined_path)):
-                        path_tuple = tuple(combined_path)
-                        if path_tuple not in unique_paths:
-                            unique_paths.add(path_tuple)
-                            paths_with_costs.append((combined_path, cost1 + cost2))
+                    if len(combined_path) <= MAX_PATH_LENGTH:
+                        paths.append(combined_path)
+                        print(f"找到路径: {' -> '.join(combined_path)}")
         
-        # 按总成本排序并返回前k条不同的路径
-        paths_with_costs.sort(key=lambda x: x[1])
-        result_paths = []
-        
-        for path, _ in paths_with_costs:
-            if len(result_paths) == k:
-                break
-            result_paths.append(path)
-            print(f"找到路径: {' -> '.join(path)}")
-        
-        return result_paths
+        return paths[:k]  # 返回最多k条路径
 
-    def get_candidate_actions(self, current_leo, destination, available_actions):
-        """获取候选动作"""
-        paths = self._find_k_shortest_paths_with_cross_region(current_leo, destination, 3, self.leo_graph)
-        
-        candidate_actions = set()
-        
-        # 从候选路径中提取下一步可能的动作
-        for path in paths:
-            if len(path) > 1 and path[0] == current_leo:
-                next_leo = path[1]
-                action_idx = list(self.leo_nodes.keys()).index(next_leo)
-                if action_idx in available_actions:
-                    candidate_actions.add(action_idx)
-        
-        # 如果没有找到候选动作，返回所有可用动作
-        if not candidate_actions:
-            return available_actions
-        
-        return list(candidate_actions)  
-
-    def _dijkstra(self, start, end, excluded_nodes=None):
-        """Dijkstra最短路径算法"""
-        if excluded_nodes is None:
-            excluded_nodes = set()
-
-        # 初始化距离和前驱节点字典
-        distances = {node: float('infinity') for node in self.leo_graph}
-        distances[start] = 0
-        previous = {node: None for node in self.leo_graph}
-        
-        # 未访问节点集合
-        unvisited = set(node for node in self.leo_graph if node not in excluded_nodes)
-
-        while unvisited:
-            # 获取未访问节点中距离最小的节点
-            current = min(unvisited, key=lambda x: distances[x])
-            
-            # 如果到达目标节点，结束搜索
-            if current == end:
-                break
-            
-            # 从未访问集合中移除当前节点
-            unvisited.remove(current)
-            
-            # 更新相邻节点的距离
-            for neighbor in self.leo_graph[current]:
-                if neighbor in excluded_nodes:
-                    continue
-                    
-                # 计算通过当前节点到达邻居节点的距离
-                distance = distances[current] + 1
-                
-                # 如果找到更短的路径，更新距离和前驱节点
-                if distance < distances[neighbor]:
-                    distances[neighbor] = distance
-                    previous[neighbor] = current
-
-        # 如果无法到达终点，返回None
-        if distances[end] == float('infinity'):
-            return None, float('infinity')
-
-        # 重建路径
-        path = []
-        current = end
-        while current is not None:
-            path.append(current)
-            current = previous[current]
-        
-        # 返回反转后的路径和总距离
-        return path[::-1], distances[end]  
+    def _find_boundary_between_meos(self, meo1, meo2):
+        """找到两个MEO区域之间的边界节点"""
+        boundary = set()
+        for leo1, neighbors in self.leo_neighbors.items():
+            if self.leo_to_meo[leo1] == meo1:
+                for leo2 in neighbors:
+                    if self.leo_to_meo[leo2] == meo2:
+                        boundary.add(leo1)
+                        boundary.add(leo2)
+        return boundary
 
     def get_cross_region_size(self, source_leo, destination_leo):
         """获取两个LEO卫星所在MEO区域之间的交叉区域大小"""
-        # 获取源和目标的MEO区域
         source_meo = self.leo_to_meo[source_leo]
         dest_meo = self.leo_to_meo[destination_leo]
         
@@ -780,18 +697,131 @@ class SatelliteEnv:
             print(f"源和目标在同一MEO区域，区域大小: {region_size}")
             return region_size
         
-        # 找到交叉区域的LEO节点
+        # 找到直接交叉区域
         cross_region = set()
-        for leo_name in self.leo_nodes:
-            # 如果LEO在源MEO区域
-            if self.leo_to_meo[leo_name] == source_meo:
-                # 检查是否与目标MEO区域的任何LEO相邻
-                for neighbor in self.leo_neighbors[leo_name]:
-                    if self.leo_to_meo[neighbor] == dest_meo:
-                        cross_region.add(leo_name)
-                        cross_region.add(neighbor)
+        for leo1, neighbors in self.leo_neighbors.items():
+            meo1 = self.leo_to_meo[leo1]
+            for leo2 in neighbors:
+                meo2 = self.leo_to_meo[leo2]
+                if ((meo1 == source_meo and meo2 == dest_meo) or 
+                    (meo1 == dest_meo and meo2 == source_meo)):
+                    cross_region.add(leo1)
+                    cross_region.add(leo2)
+        
+        # 如果没有直接交叉，寻找通过中间MEO的路径
+        if not cross_region:
+            all_meos = set(self.leo_to_meo.values())
+            intermediate_meos = all_meos - {source_meo, dest_meo}
+            
+            for inter_meo in intermediate_meos:
+                source_boundary = self._find_boundary_between_meos(source_meo, inter_meo)
+                dest_boundary = self._find_boundary_between_meos(inter_meo, dest_meo)
+                
+                if source_boundary and dest_boundary:
+                    cross_region.update(source_boundary)
+                    cross_region.update(dest_boundary)
         
         print(f"交叉区域节点数量: {len(cross_region)}")
         print(f"交叉区域节点: {cross_region}")
         
         return len(cross_region)  
+
+    def _dijkstra(self, source, target, excluded_nodes=None):
+        """使用Dijkstra算法找到最短路径
+        
+        Args:
+            source: 源节点
+            target: 目标节点
+            excluded_nodes: 需要排除的节点集合
+        
+        Returns:
+            tuple: (path, distance) 路径和总距离
+        """
+        if excluded_nodes is None:
+            excluded_nodes = set()
+        
+        # 初始化距离和前驱节点字典
+        distances = {node: float('infinity') for node in self.leo_nodes}
+        distances[source] = 0
+        predecessors = {node: None for node in self.leo_nodes}
+        
+        # 未访问节点集合
+        unvisited = set(node for node in self.leo_nodes if node not in excluded_nodes)
+        
+        while unvisited:
+            # 找到未访问节点中距离最小的节点
+            current = min(unvisited, key=lambda x: distances[x])
+            
+            if current == target:
+                break
+            
+            unvisited.remove(current)
+            
+            # 如果当前节点的距离是无穷大，说明无法到达目标
+            if distances[current] == float('infinity'):
+                break
+            
+            # 更新邻居节点的距离
+            for neighbor in self.leo_neighbors[current]:
+                if neighbor in excluded_nodes:
+                    continue
+                
+                # 获取链路性能指标
+                metrics = self._calculate_link_metrics(current, neighbor)
+                if not metrics:
+                    continue
+                
+                # 使用加权距离（考虑延迟、带宽和丢包率）
+                weight = (metrics['delay'] / 20.0 +  # 归一化延迟
+                         20.0 / metrics['bandwidth'] +  # 归一化带宽的倒数
+                         metrics['loss'])  # 丢包率
+                
+                distance = distances[current] + weight
+                
+                if distance < distances[neighbor]:
+                    distances[neighbor] = distance
+                    predecessors[neighbor] = current
+        
+        # 构建路径
+        if target not in predecessors or predecessors[target] is None:
+            return None, float('infinity')
+        
+        path = []
+        current = target
+        while current is not None:
+            path.append(current)
+            current = predecessors[current]
+        
+        path.reverse()
+        
+        return path, distances[target]  
+
+    def get_candidate_actions(self, current_leo, destination, available_actions):
+        """获取基于当前状态的候选动作
+        
+        Args:
+            current_leo: 当前LEO卫星
+            destination: 目标LEO卫星
+            available_actions: 可用动作列表
+        
+        Returns:
+            list: 候选动作列表
+        """
+        # 获取所有可能的路径
+        paths = self._find_k_shortest_paths_with_cross_region(current_leo, destination, 3, self.leo_graph)
+        candidate_actions = set()
+        
+        # 从路径中提取下一步可能的动作
+        for path in paths:
+            if path and len(path) > 1:
+                next_leo = path[1]  # 获取路径中的下一个节点
+                # 将节点名称转换为动作索引
+                action_idx = list(self.leo_nodes.keys()).index(next_leo)
+                if action_idx in available_actions:
+                    candidate_actions.add(action_idx)
+        
+        # 如果没有找到候选动作，返回所有可用动作
+        if not candidate_actions:
+            return available_actions
+        
+        return list(candidate_actions)  
