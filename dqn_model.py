@@ -128,64 +128,22 @@ class DQNAgent:
             return None
             
         # 获取候选动作
-        candidate_actions = self.get_candidate_actions(
-            current_leo, destination, env, non_loop_actions
-        )
+        candidate_actions = env.get_candidate_actions(current_leo, destination, non_loop_actions)
         
         # 探索
         if random.random() < self.epsilon:
             if random.random() < 0.8 and candidate_actions:
-                return self._choose_exploration_action(
-                    candidate_actions, current_leo, destination, env
-                )
+                return random.choice(candidate_actions)
             return random.choice(non_loop_actions)
         
         # 利用
-        return self._choose_exploitation_action(
-            state, non_loop_actions, current_leo, destination, env
-        )
-
-    def _choose_exploration_action(self, candidate_actions, current_leo, destination, env):
-        """在探索阶段选择动作"""
-        best_action = None
-        best_score = float('-inf')
-        
-        for action in candidate_actions:
-            next_leo = self.leo_names[action]
-            metrics = env._calculate_link_metrics(current_leo, next_leo)
-            score = self.calculate_path_quality(metrics)
-            
-            # 增加目标导向的评分
-            if self.leo_to_meo[next_leo] == self.leo_to_meo[destination]:
-                score *= 1.2
-            
-            if score > best_score:
-                best_score = score
-                best_action = action
-        
-        return best_action if best_action is not None else random.choice(candidate_actions)
-
-    def _choose_exploitation_action(self, state, non_loop_actions, current_leo, destination, env):
-        """在利用阶段选择动作"""
+        state = torch.FloatTensor(state).to(self.device)
         with torch.no_grad():
-            state = state.unsqueeze(0)
             action_values = self.policy_net(state)
-            
-            action_scores = []
-            for action in non_loop_actions:
-                next_leo = self.leo_names[action]
-                metrics = env._calculate_link_metrics(current_leo, next_leo)
-                path_quality = self.calculate_path_quality(metrics)
-                q_value = action_values[0][action].item()
-                
-                score = 0.5 * q_value + 0.3 * path_quality
-                
-                if self.leo_to_meo[next_leo] == self.leo_to_meo[destination]:
-                    score *= 1.2
-                
-                action_scores.append((action, score))
-            
-            return max(action_scores, key=lambda x: x[1])[0]
+        
+        # 只考虑非循环动作中的最大值
+        valid_actions = {action: action_values[action].item() for action in non_loop_actions}
+        return max(valid_actions.items(), key=lambda x: x[1])[0]
 
     def memorize(self, state, action, reward, next_state, done):
         """存储经验"""
