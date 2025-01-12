@@ -153,6 +153,12 @@ class DQNAgent:
 
     def memorize(self, state, action, reward, next_state, done):
         """存储经验"""
+        # 确保状态是 Tensor 类型
+        if isinstance(state, list):
+            state = torch.FloatTensor(state).to(self.device)
+        if isinstance(next_state, list):
+            next_state = torch.FloatTensor(next_state).to(self.device)
+        
         self.memory.append((state, action, reward, next_state, done))
 
     def replay(self, batch_size):
@@ -162,12 +168,32 @@ class DQNAgent:
         
         batch = random.sample(self.memory, batch_size)
         
-        # 确保所有状态都是相同大小的 Tensor
-        states = torch.stack([experience[0] for experience in batch])
-        actions = torch.tensor([experience[1] for experience in batch], device=self.device)
-        rewards = torch.tensor([experience[2] for experience in batch], device=self.device, dtype=torch.float32)
-        next_states = torch.stack([experience[3] for experience in batch])
-        dones = torch.tensor([experience[4] for experience in batch], device=self.device, dtype=torch.float32)
+        # 确保所有状态都是 Tensor 类型并且维度正确
+        states = []
+        actions = []
+        rewards = []
+        next_states = []
+        dones = []
+        
+        for state, action, reward, next_state, done in batch:
+            # 确保状态是 Tensor 类型
+            if isinstance(state, list):
+                state = torch.FloatTensor(state).to(self.device)
+            if isinstance(next_state, list):
+                next_state = torch.FloatTensor(next_state).to(self.device)
+            
+            states.append(state)
+            actions.append(action)
+            rewards.append(reward)
+            next_states.append(next_state)
+            dones.append(done)
+        
+        # 将列表转换为 Tensor
+        states = torch.stack(states)
+        actions = torch.tensor(actions, device=self.device)
+        rewards = torch.tensor(rewards, device=self.device, dtype=torch.float32)
+        next_states = torch.stack(next_states)
+        dones = torch.tensor(dones, device=self.device, dtype=torch.float32)
 
         # 计算当前Q值
         current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1))
