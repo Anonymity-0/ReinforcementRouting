@@ -168,22 +168,18 @@ class MEOController:
 
     def find_cross_region(self, source_leo, destination_leo):
         """在MEOController中调试find_cross_region方法"""
-        print(f"查找从 {source_leo} 到 {destination_leo} 的交叉区域")
-        
+       
         # 获取源和目标所属的MEO区域
         source_meo = next((meo_name for meo_name, info in self.neighbor_meo_states.items() 
                           if source_leo in info['leo_states']), None)
         dest_meo = next((meo_name for meo_name, info in self.neighbor_meo_states.items() 
                         if destination_leo in info['leo_states']), None)
         
-        print(f"源MEO: {source_meo}, 目标MEO: {dest_meo}")
         
         if source_meo is None or dest_meo is None:
-            print("无法找到源或目标的MEO区域")
             # 如果在本地管理的LEO中
             source_local = source_leo in self.managed_leos
             dest_local = destination_leo in self.managed_leos
-            print(f"源是本地LEO: {source_local}, 目标是本地LEO: {dest_local}")
             if source_local:
                 return set(self.managed_leos.keys())
             return set()
@@ -198,11 +194,9 @@ class MEOController:
         dest_leos = set(self.neighbor_meo_states[dest_meo]['leo_states'].keys() 
                         if dest_meo else self.managed_leos.keys())
         
-        print(f"源区域LEO数量: {len(source_leos)}, 目标区域LEO数量: {len(dest_leos)}")
         
         # 找到边界LEO
         boundary_leos = self._find_boundary_leos(source_leos, dest_leos)
-        print(f"找到的边界LEO数量: {len(boundary_leos)}")
         
         return boundary_leos
     
@@ -601,8 +595,6 @@ class SatelliteEnv:
         source_meo = self.leo_to_meo[source]
         dest_meo = self.leo_to_meo[destination]
         
-        print(f"\n开始寻找从 {source}({source_meo}) 到 {destination}({dest_meo}) 的路径")
-        
         # 如果在同一MEO区域，使用普通的最短路径算法
         if source_meo == dest_meo:
             paths = []
@@ -625,7 +617,6 @@ class SatelliteEnv:
                     cross_region.add(leo1)
                     cross_region.add(leo2)
         
-        print(f"找到的交叉区域节点: {cross_region}")
         
         if not cross_region:
             # 如果没有直接的交叉区域，尝试通过中间MEO区域寻找路径
@@ -642,7 +633,6 @@ class SatelliteEnv:
                     cross_region.update(dest_boundary)
         
         if not cross_region:
-            print("未找到交叉区域节点")
             return []
         
         # 使用交叉区域节点构建路径
@@ -672,7 +662,6 @@ class SatelliteEnv:
                     combined_path = path1[:-1] + path2
                     if len(combined_path) <= MAX_PATH_LENGTH:
                         paths.append(combined_path)
-                        print(f"找到路径: {' -> '.join(combined_path)}")
         
         return paths[:k]  # 返回最多k条路径
 
@@ -692,12 +681,10 @@ class SatelliteEnv:
         source_meo = self.leo_to_meo[source_leo]
         dest_meo = self.leo_to_meo[destination_leo]
         
-        print(f"\n计算从 {source_leo}({source_meo}) 到 {destination_leo}({dest_meo}) 的交叉区域大小")
         
         # 如果在同一MEO区域，返回该区域的所有LEO数量
         if source_meo == dest_meo:
             region_size = sum(1 for leo in self.leo_to_meo if self.leo_to_meo[leo] == source_meo)
-            print(f"源和目标在同一MEO区域，区域大小: {region_size}")
             return region_size
         
         # 找到直接交叉区域
@@ -774,12 +761,7 @@ class SatelliteEnv:
                 if not metrics:
                     continue
                 
-                # 使用加权距离（考虑延迟、带宽和丢包率）
-                weight = (metrics['delay'] / 20.0 +  # 归一化延迟
-                         20.0 / metrics['bandwidth'] +  # 归一化带宽的倒数
-                         metrics['loss'])  # 丢包率
-                
-                distance = distances[current] + weight
+                distance = distances[current] 
                 
                 if distance < distances[neighbor]:
                     distances[neighbor] = distance
