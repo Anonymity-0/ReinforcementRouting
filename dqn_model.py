@@ -5,6 +5,12 @@ import numpy as np
 import random
 from collections import deque
 
+# 添加缺失的常量定义
+INITIAL_EPSILON = 0.9
+MIN_EPSILON = 0.1
+DECAY_RATE = 0.0001
+QUEUE_CAPACITY = 100  # MB
+
 class DQNetwork(nn.Module):
     def __init__(self, state_size, action_size):
         super(DQNetwork, self).__init__()
