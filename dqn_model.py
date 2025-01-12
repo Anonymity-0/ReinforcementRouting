@@ -156,10 +156,28 @@ class DQNAgent:
             return
         
         batch = random.sample(self.memory, batch_size)
-        states = torch.stack([s[0] for s in batch])
+        
+        # 确保所有状态都是 Tensor
+        states = []
+        for s in [s[0] for s in batch]:
+            if isinstance(s, list):
+                states.append(torch.FloatTensor(s).to(self.device))
+            else:
+                states.append(s)
+        states = torch.stack(states)
+        
         actions = torch.tensor([s[1] for s in batch], device=self.device)
         rewards = torch.tensor([s[2] for s in batch], device=self.device, dtype=torch.float32)
-        next_states = torch.stack([s[3] for s in batch])
+        
+        # 确保所有下一个状态都是 Tensor
+        next_states = []
+        for s in [s[3] for s in batch]:
+            if isinstance(s, list):
+                next_states.append(torch.FloatTensor(s).to(self.device))
+            else:
+                next_states.append(s)
+        next_states = torch.stack(next_states)
+        
         dones = torch.tensor([s[4] for s in batch], device=self.device, dtype=torch.float32)
 
         # 计算当前Q值
