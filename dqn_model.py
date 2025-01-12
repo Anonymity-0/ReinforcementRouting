@@ -77,11 +77,11 @@ class DQNAgent:
         # 组合状态向量
         state = current_metrics + [same_region, cross_region_size]
         
-        # 填充固定长度
-        max_neighbors = 4  # 假设最多4个邻居
-        expected_length = max_neighbors * 4 + 2  # 4个指标 + 区域标识 + 交叉区域大小
-        if len(state) < expected_length:
-            state.extend([0.0] * (expected_length - len(state)))
+        # 确保状态向量长度为 18
+        if len(state) < 18:
+            state.extend([0.0] * (18 - len(state)))
+        elif len(state) > 18:
+            state = state[:18]
         
         # 确保返回的是Tensor
         return torch.FloatTensor(state).to(self.device)
@@ -157,24 +157,44 @@ class DQNAgent:
         
         batch = random.sample(self.memory, batch_size)
         
-        # 确保所有状态都是 Tensor
+        # 确保所有状态都是相同大小的 Tensor
         states = []
         for s in [s[0] for s in batch]:
             if isinstance(s, list):
+                # 确保状态向量长度一致（使用固定长度 18）
+                if len(s) < 18:
+                    s.extend([0.0] * (18 - len(s)))
+                elif len(s) > 18:
+                    s = s[:18]
                 states.append(torch.FloatTensor(s).to(self.device))
             else:
+                # 如果已经是 Tensor，确保大小一致
+                if s.size(0) < 18:
+                    padding = torch.zeros(18 - s.size(0), device=self.device)
+                    s = torch.cat([s, padding])
+                elif s.size(0) > 18:
+                    s = s[:18]
                 states.append(s)
         states = torch.stack(states)
         
         actions = torch.tensor([s[1] for s in batch], device=self.device)
         rewards = torch.tensor([s[2] for s in batch], device=self.device, dtype=torch.float32)
         
-        # 确保所有下一个状态都是 Tensor
+        # 对下一个状态做相同的处理
         next_states = []
         for s in [s[3] for s in batch]:
             if isinstance(s, list):
+                if len(s) < 18:
+                    s.extend([0.0] * (18 - len(s)))
+                elif len(s) > 18:
+                    s = s[:18]
                 next_states.append(torch.FloatTensor(s).to(self.device))
             else:
+                if s.size(0) < 18:
+                    padding = torch.zeros(18 - s.size(0), device=self.device)
+                    s = torch.cat([s, padding])
+                elif s.size(0) > 18:
+                    s = s[:18]
                 next_states.append(s)
         next_states = torch.stack(next_states)
         
