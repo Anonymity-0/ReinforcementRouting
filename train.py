@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import random
 import json
-from satellite_env import SatelliteEnv
+from satellite_env import SatelliteEnv, MAX_PATH_LENGTH
 from dqn_model import DQNAgent
 
 def plot_metrics(metrics, save_dir='training_plots'):
