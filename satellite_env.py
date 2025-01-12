@@ -535,7 +535,7 @@ class SatelliteEnv:
 
     def get_state_size(self):
         """获取状态空间大小"""
-        return 17
+        return 18
 
     def get_available_actions(self, current_leo):
         """获取当前可用动作"""
@@ -587,11 +587,14 @@ class SatelliteEnv:
             else:
                 state.extend([0, 0, 0])
         
+        # 4. 添加一个额外的特征（例如：当前时间归一化）
+        state.append(self.simulation_time / (24 * 60 * 60))  # 假设一天为周期
+        
         # 填充到固定长度
-        while len(state) < 17:  # 确保状态向量长度为17
+        while len(state) < 18:  # 确保状态向量长度为18
             state.append(0)
         
-        return state
+        return state[:18]  # 确保返回18维向量
     def _find_k_shortest_paths_with_cross_region(self, source, destination, k, graph):
         """基于最小交叉区域的k最短路径算法"""
         # 获取源和目标的MEO区域
