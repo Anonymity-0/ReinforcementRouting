@@ -145,10 +145,17 @@ def train():
             # 重置环境
             env.reset()
             
-            # 选择源节点和目标节点
+            # 选择不同MEO区域的源节点和目标节点
             leo_names = env.get_leo_names()
-            source = random.choice(leo_names)
-            destination = random.choice([x for x in leo_names if x != source])
+            meo_regions = set(env.leo_to_meo.values())
+            source_meo = random.choice(list(meo_regions))
+            dest_meo = random.choice([m for m in meo_regions if m != source_meo])
+            
+            # 从选定的MEO区域中选择源和目标LEO
+            source_leos = [leo for leo, meo in env.leo_to_meo.items() if meo == source_meo]
+            dest_leos = [leo for leo, meo in env.leo_to_meo.items() if meo == dest_meo]
+            source = random.choice(source_leos)
+            destination = random.choice(dest_leos)
             
             current_leo = source
             path = [current_leo]
@@ -161,8 +168,12 @@ def train():
                 # 获取可用动作
                 available_actions = env.get_available_actions(current_leo)
                 
+                # 获取候选动作
+                candidate_actions = env.get_candidate_actions(current_leo, destination, available_actions)
+                
                 # 选择动作
-                action = agent.choose_action(current_state, available_actions, env, current_leo, destination, path)
+                action = agent.choose_action(current_state, candidate_actions or available_actions, 
+                                          env, current_leo, destination, path)
                 
                 if action is None:
                     break
@@ -217,14 +228,14 @@ def train():
                 save_training_history(all_metrics)
     
     except KeyboardInterrupt:
-        print("\nTraining interrupted by user")
+        print("\n训练被用户中断")
     except Exception as e:
-        print(f"\nError occurred during training: {str(e)}")
+        print(f"\n训练过程中出现错误: {str(e)}")
     finally:
         # 保存最终的训练结果
         plot_metrics(all_metrics)
         save_training_history(all_metrics)
-        print("\nTraining completed")
+        print("\n训练完成")
 
 if __name__ == '__main__':
     train() 
