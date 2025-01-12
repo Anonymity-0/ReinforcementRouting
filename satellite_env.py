@@ -710,9 +710,7 @@ class SatelliteEnv:
                 if source_boundary and dest_boundary:
                     cross_region.update(source_boundary)
                     cross_region.update(dest_boundary)
-        
-        print(f"交叉区域节点数量: {len(cross_region)}")
-        print(f"交叉区域节点: {cross_region}")
+       
         
         return len(cross_region)  
 
