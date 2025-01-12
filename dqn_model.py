@@ -52,38 +52,43 @@ class DQNAgent:
 
     def get_state(self, env, current_leo, destination_leo):
         """获取当前状态表示"""
-        current_metrics = []
+        # 初始化固定长度的状态向量
+        state = np.zeros(18)
+        current_idx = 0
         
-        # 获取与邻居节点的链路性能指标
+        # 1. 获取与邻居节点的链路性能指标
+        current_metrics = []
         for neighbor in env.leo_nodes[current_leo].connected_satellites:
             metrics = env._calculate_link_metrics(current_leo, neighbor)
             if metrics:
-                current_metrics.extend([
-                    metrics['delay'] / 100.0,
-                    metrics['bandwidth'] / 20.0,
-                    metrics['loss'] / 100.0,
-                    env.links_dict.get((current_leo, neighbor) if (current_leo, neighbor) in env.links_dict 
-                                     else (neighbor, current_leo)).traffic / QUEUE_CAPACITY
-                ])
+                # 归一化指标
+                delay = metrics['delay'] / 100.0
+                bandwidth = metrics['bandwidth'] / 20.0
+                loss = metrics['loss'] / 100.0
+                traffic = (env.links_dict.get((current_leo, neighbor)) or 
+                          env.links_dict.get((neighbor, current_leo))).traffic / QUEUE_CAPACITY
+                
+                # 添加到指标列表
+                current_metrics.extend([delay, bandwidth, loss, traffic])
         
-        # 添加目标LEO的位置信息和区域信息
+        # 2. 添加目标LEO的位置信息和区域信息
         dest_meo = self.leo_to_meo[destination_leo]
         current_meo = self.leo_to_meo[current_leo]
         same_region = 1.0 if dest_meo == current_meo else 0.0
         
-        # 获取最小交叉区域大小
-        cross_region_size = env.get_cross_region_size(current_leo, destination_leo)
+        # 3. 获取最小交叉区域大小并归一化
+        cross_region_size = min(env.get_cross_region_size(current_leo, destination_leo) / 32.0, 1.0)
         
-        # 组合状态向量
-        state = current_metrics + [same_region, cross_region_size]
+        # 4. 填充状态向量
+        # 前16个位置用于链路性能指标（最多4个邻居，每个邻居4个指标）
+        for i, metric in enumerate(current_metrics[:16]):
+            state[i] = metric
         
-        # 确保状态向量长度为 18
-        if len(state) < 18:
-            state.extend([0.0] * (18 - len(state)))
-        elif len(state) > 18:
-            state = state[:18]
+        # 最后两个位置分别用于区域信息和交叉区域大小
+        state[16] = same_region
+        state[17] = cross_region_size
         
-        # 确保返回的是Tensor
+        # 确保返回的是正确维度的Tensor
         return torch.FloatTensor(state).to(self.device)
 
     def get_candidate_actions(self, current_leo, destination, env, available_actions):
