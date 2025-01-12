@@ -80,7 +80,7 @@ def save_training_history(metrics, save_dir='training_history'):
     with open(filename, 'w') as f:
         json.dump(history, f, indent=4)
 
-def print_episode_stats(episode, episodes, path, path_stats, metrics, agent):
+def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env):
     """打印每个episode的统计信息"""
     print(f"\nEpisode {episode + 1}/{episodes}")
     print(f"Path: {' -> '.join(path)}")
@@ -209,7 +209,7 @@ def train():
             all_metrics['rewards'].append(episode_reward)
             
             # 打印统计信息
-            print_episode_stats(episode, episodes, path, path_stats, all_metrics, agent)
+            print_episode_stats(episode, episodes, path, path_stats, all_metrics, agent, env)
             
             # 每100个episode保存一次指标图表
             if (episode + 1) % 100 == 0:
