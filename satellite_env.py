@@ -63,10 +63,6 @@ class Link:
 
     def add_packets(self, num_packets, start_id, current_time):
         """添加数据包到队列"""
-        print(f"\n添加数据包:")
-        print(f"待添加数据包数: {num_packets}")
-        print(f"当前队列大小: {len(self.packets['in_queue'])}")
-        print(f"最大队列容量: {self.max_packets}")
         
         accepted_packets = set()
         dropped_packets = set()
@@ -80,11 +76,7 @@ class Link:
             else:
                 self.packets['dropped'].add(packet_id)
                 dropped_packets.add(packet_id)
-        
-        print(f"成功添加数据包: {len(accepted_packets)}")
-        print(f"丢弃数据包: {len(dropped_packets)}")
-        print(f"更新后队列大小: {len(self.packets['in_queue'])}")
-        
+       
         self.traffic = len(self.packets['in_queue']) * PACKET_SIZE / 1024
         self.congestion_level = len(self.packets['in_queue']) / self.max_packets
         
@@ -98,9 +90,7 @@ class Link:
         time_delta = current_time - self.last_process_time
         if time_delta <= 0:
             return set()
-        
-        print(f"\n处理队列详情:")
-        print(f"时间间隔: {time_delta:.2f} ms")
+       
         
         # 计算在给定时间内可以处理的数据包数量
         bits_per_packet = PACKET_SIZE * 8 * 1024  # 每个数据包的比特数
@@ -108,10 +98,6 @@ class Link:
         processable_bits = available_bandwidth * (time_delta / 1000.0)  # 可处理的总比特数
         packets_can_process = max(1, int(processable_bits / bits_per_packet))  # 确保至少处理1个包
         
-        print(f"可用带宽: {available_bandwidth/1e6:.2f} Mbps")
-        print(f"可处理比特数: {processable_bits/1e6:.2f} Mb")
-        print(f"可处理数据包数: {packets_can_process}")
-        print(f"当前队列长度: {len(self.packets['in_queue'])}")
         
         # 处理数据包
         processed_packets = set()
@@ -133,10 +119,7 @@ class Link:
                 self.packets['processed'].add(packet_id)
                 processed_packets.add(packet_id)
             del self.packet_timestamps[packet_id]
-        
-        print(f"实际处理数据包数: {len(processed_packets)}")
-        print(f"丢失数据包数: {len(packets_to_process) - len(processed_packets)}")
-        
+          
         self.traffic = len(self.packets['in_queue']) * PACKET_SIZE / 1024
         self.last_process_time = current_time
         
@@ -388,39 +371,29 @@ class SatelliteEnv:
         if self.simulation_time - link.last_update_time >= UPDATE_INTERVAL:
             # 计算链路利用率
             utilization = min(1.0, link.traffic / QUEUE_CAPACITY if QUEUE_CAPACITY > 0 else 1.0)
-            print(f"\n链路 {node1}-{node2} 性能计算:")
-            print(f"链路利用率: {utilization:.3f}")
 
             # 调整实际带宽
             congestion_factor = 1 - (utilization ** 2) * 0.5
             adjusted_bandwidth = link.current_bandwidth * 1e6 * congestion_factor
-            print(f"拥塞因子: {congestion_factor:.3f}")
-            print(f"调整后带宽: {adjusted_bandwidth/1e6:.2f} Mbps")
 
             # 计算延迟
             queue_size_bits = len(link.packets['in_queue']) * PACKET_SIZE * 8 * 1024
-            print(f"队列大小: {queue_size_bits/1024:.2f} Kb")
 
             # 计算排队延迟
             queue_delay = (queue_size_bits / adjusted_bandwidth) * 1000 if adjusted_bandwidth > 0 else float('inf')
-            print(f"排队延迟: {queue_delay:.2f} ms")
 
             # 计算处理延迟
             processing_delay = 0.1 * len(link.packets['in_queue'])
-            print(f"处理延迟: {processing_delay:.2f} ms")
 
             # 传播延迟
             propagation_delay = link.base_delay + queue_delay * 0.05
-            print(f"传播延迟: {propagation_delay:.2f} ms")
 
             # 设备负载影响
             device_load = len(link.packets['in_queue']) / link.max_packets
             processing_delay *= (1 + device_load)
-            print(f"设备负载: {device_load:.3f}")
 
             # 总延迟
             total_delay = propagation_delay + queue_delay + processing_delay
-            print(f"总延迟: {total_delay:.2f} ms")
 
             # 添加随机抖动
             jitter = np.random.normal(0, total_delay * 0.05)
@@ -442,12 +415,6 @@ class SatelliteEnv:
             utilization_factor = len(link.packets['in_queue']) / link.max_packets
             adjusted_loss_rate = actual_loss_rate * (1 + utilization_factor)
             
-            print(f"丢包统计:")
-            print(f"  处理的数据包: {total_processed}")
-            print(f"  丢失的数据包: {total_lost}")
-            print(f"  基础丢包率: {actual_loss_rate:.2f}%")
-            print(f"  队列利用率: {utilization_factor:.2f}")
-            print(f"  调整后丢包率: {adjusted_loss_rate:.2f}%")
 
             # 更新链路状态
             link.current_delay = total_delay
@@ -546,14 +513,6 @@ class SatelliteEnv:
         # 添加随机变化（±10%）
         variation = random.uniform(0.9, 1.1)
         final_packets = max(1, int(generated_packets * variation))
-        
-        print(f"\n流量生成详情:")
-        print(f"数据生成率: {current_rate:.2f} Gbps")
-        print(f"每秒数据包数: {packets_per_second:.2f}")
-        print(f"时间间隔: {time_interval:.3f} s")
-        print(f"λ (平均数据包数): {lambda_packets:.2f}")
-        print(f"生成的数据包数: {generated_packets}")
-        print(f"最终数据包数: {final_packets}")
         
         return final_packets
 
