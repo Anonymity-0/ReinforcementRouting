@@ -153,11 +153,26 @@ class DQNAgent:
 
     def memorize(self, state, action, reward, next_state, done):
         """存储经验"""
-        # 确保状态是 Tensor 类型
+        # 确保状态是18维的 Tensor
         if isinstance(state, list):
+            # 如果状态长度不足18，进行填充
+            if len(state) < 18:
+                state = state + [0.0] * (18 - len(state))
             state = torch.FloatTensor(state).to(self.device)
+        elif isinstance(state, torch.Tensor) and state.size(0) < 18:
+            # 如果是Tensor但维度不足，进行填充
+            padding = torch.zeros(18 - state.size(0), device=self.device)
+            state = torch.cat([state, padding])
+        
         if isinstance(next_state, list):
+            # 如果下一个状态长度不足18，进行填充
+            if len(next_state) < 18:
+                next_state = next_state + [0.0] * (18 - len(next_state))
             next_state = torch.FloatTensor(next_state).to(self.device)
+        elif isinstance(next_state, torch.Tensor) and next_state.size(0) < 18:
+            # 如果是Tensor但维度不足，进行填充
+            padding = torch.zeros(18 - next_state.size(0), device=self.device)
+            next_state = torch.cat([next_state, padding])
         
         self.memory.append((state, action, reward, next_state, done))
 
@@ -168,7 +183,6 @@ class DQNAgent:
         
         batch = random.sample(self.memory, batch_size)
         
-        # 确保所有状态都是 Tensor 类型并且维度正确
         states = []
         actions = []
         rewards = []
@@ -176,11 +190,22 @@ class DQNAgent:
         dones = []
         
         for state, action, reward, next_state, done in batch:
-            # 确保状态是 Tensor 类型
+            # 确保状态是18维的 Tensor
             if isinstance(state, list):
+                if len(state) < 18:
+                    state = state + [0.0] * (18 - len(state))
                 state = torch.FloatTensor(state).to(self.device)
+            elif isinstance(state, torch.Tensor) and state.size(0) < 18:
+                padding = torch.zeros(18 - state.size(0), device=self.device)
+                state = torch.cat([state, padding])
+            
             if isinstance(next_state, list):
+                if len(next_state) < 18:
+                    next_state = next_state + [0.0] * (18 - len(next_state))
                 next_state = torch.FloatTensor(next_state).to(self.device)
+            elif isinstance(next_state, torch.Tensor) and next_state.size(0) < 18:
+                padding = torch.zeros(18 - next_state.size(0), device=self.device)
+                next_state = torch.cat([next_state, padding])
             
             states.append(state)
             actions.append(action)
