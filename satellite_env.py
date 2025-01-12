@@ -806,3 +806,33 @@ class SatelliteEnv:
         
         # 返回反转后的路径和总距离
         return path[::-1], distances[end]  
+
+    def get_cross_region_size(self, source_leo, destination_leo):
+        """获取两个LEO卫星所在MEO区域之间的交叉区域大小"""
+        # 获取源和目标的MEO区域
+        source_meo = self.leo_to_meo[source_leo]
+        dest_meo = self.leo_to_meo[destination_leo]
+        
+        print(f"\n计算从 {source_leo}({source_meo}) 到 {destination_leo}({dest_meo}) 的交叉区域大小")
+        
+        # 如果在同一MEO区域，返回该区域的所有LEO数量
+        if source_meo == dest_meo:
+            region_size = sum(1 for leo in self.leo_to_meo if self.leo_to_meo[leo] == source_meo)
+            print(f"源和目标在同一MEO区域，区域大小: {region_size}")
+            return region_size
+        
+        # 找到交叉区域的LEO节点
+        cross_region = set()
+        for leo_name in self.leo_nodes:
+            # 如果LEO在源MEO区域
+            if self.leo_to_meo[leo_name] == source_meo:
+                # 检查是否与目标MEO区域的任何LEO相邻
+                for neighbor in self.leo_neighbors[leo_name]:
+                    if self.leo_to_meo[neighbor] == dest_meo:
+                        cross_region.add(leo_name)
+                        cross_region.add(neighbor)
+        
+        print(f"交叉区域节点数量: {len(cross_region)}")
+        print(f"交叉区域节点: {cross_region}")
+        
+        return len(cross_region)  
