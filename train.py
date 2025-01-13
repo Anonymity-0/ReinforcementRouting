@@ -130,8 +130,17 @@ def train_dqn():
             # 每10个回合打印一次详细信息
             if episode % 10 == 0:
                 print(f"\nEpisode {episode}/{NUM_EPISODES}")
-                print(f"源节点: {source} -> 目标节点: {destination}")
-                print(f"路径: {' -> '.join(path)}")
+                source_meo = env.leo_to_meo[source]
+                dest_meo = env.leo_to_meo[destination]
+                print(f"源节点: {source}(MEO区域: {source_meo}) -> 目标节点: {destination}(MEO区域: {dest_meo})")
+                
+                # 打印完整路径及其MEO区域信息
+                path_info = []
+                for leo in path:
+                    meo = env.leo_to_meo[leo]
+                    path_info.append(f"{leo}({meo})")
+                print(f"路径: {' -> '.join(path_info)}")
+                
                 print(f"总奖励: {total_reward:.2f}")
                 print(f"平均奖励: {avg_reward:.2f}")
                 print(f"探索率: {agent.epsilon:.4f}")
@@ -143,6 +152,11 @@ def train_dqn():
                     print(f"平均带宽利用率: {np.mean(episode_metrics['bandwidth_utils'])*100:.2f}%")
                     print(f"平均丢包率: {np.mean(episode_metrics['loss_rates']):.2f}%")
                     print(f"平均队列利用率: {np.mean(episode_metrics['queue_utils'])*100:.2f}%")
+                    
+                    # 添加MEO区域切换统计
+                    meo_switches = sum(1 for i in range(len(path)-1) 
+                                     if env.leo_to_meo[path[i]] != env.leo_to_meo[path[i+1]])
+                    print(f"MEO区域切换次数: {meo_switches}")
         
         # 训练结束后绘制性能指标曲线
         plt.figure(figsize=(15, 10))
@@ -261,9 +275,24 @@ def evaluate_model(model_path, num_episodes=100):
             
             if episode % 10 == 0:
                 print(f"\nEpisode {episode}/{num_episodes}")
-                print(f"路径: {' -> '.join(path)}")
+                source_meo = env.leo_to_meo[source]
+                dest_meo = env.leo_to_meo[destination]
+                print(f"源节点: {source}(MEO区域: {source_meo}) -> 目标节点: {destination}(MEO区域: {dest_meo})")
+                
+                # 打印完整路径及其MEO区域信息
+                path_info = []
+                for leo in path:
+                    meo = env.leo_to_meo[leo]
+                    path_info.append(f"{leo}({meo})")
+                print(f"路径: {' -> '.join(path_info)}")
+                
                 print(f"路径长度: {len(path)}")
                 print(f"总奖励: {total_reward:.2f}")
+                
+                # 添加MEO区域切换统计
+                meo_switches = sum(1 for i in range(len(path)-1) 
+                                 if env.leo_to_meo[path[i]] != env.leo_to_meo[path[i+1]])
+                print(f"MEO区域切换次数: {meo_switches}")
         
         # 打印评估结果
         success_rate = success_count / num_episodes * 100
