@@ -635,15 +635,6 @@ class SatelliteEnv:
         
         使用多目标优化方法，将多个性能指标组合成一个综合奖励值
         R = w1*R_distance + w2*R_quality + w3*R_loop + w4*R_region + w5*R_congestion
-        
-        Args:
-            next_leo: 下一跳卫星节点
-            destination: 目标节点
-            metrics: 链路性能指标
-            path: 当前路径
-        
-        Returns:
-            float: 综合奖励值
         """
         try:
             # 1. 距离奖励 (使用指数衰减)
@@ -660,17 +651,30 @@ class SatelliteEnv:
             
             # 2. 链路质量奖励 (使用加权调和平均)
             if metrics:
-                # 归一化各项指标
-                norm_delay = min(1.0, metrics['delay'] / 100)
-                norm_bandwidth = min(1.0, metrics['bandwidth'] / 20)
-                norm_loss = min(1.0, metrics['loss'] / 100)
+                # 归一化各项指标并添加小的epsilon值避免除零
+                epsilon = 1e-10
+                norm_delay = min(1.0, metrics['delay'] / 100) + epsilon
+                norm_bandwidth = min(1.0, metrics['bandwidth'] / 20) + epsilon
+                norm_loss = min(1.0, metrics['loss'] / 100) + epsilon
                 
                 # 权重设置
                 w_delay, w_bw, w_loss = 0.5, 0.3, 0.2
                 
-                # 使用调和平均数计算链路质量 (对极值更敏感)
-                quality_score = 3 / (w_delay/(1-norm_delay) + w_bw/norm_bandwidth + w_loss/(1-norm_loss))
-                link_quality_reward = 15.0 * (quality_score - 0.5)  # 将分数映射到奖励值
+                try:
+                    # 使用调和平均数计算链路质量 (对极值更敏感)
+                    # 添加保护以避免除零
+                    quality_components = [
+                        w_delay / max(epsilon, 1 - norm_delay),
+                        w_bw / max(epsilon, norm_bandwidth),
+                        w_loss / max(epsilon, 1 - norm_loss)
+                    ]
+                    if all(x > 0 for x in quality_components):
+                        quality_score = 3 / sum(quality_components)
+                        link_quality_reward = 15.0 * (quality_score - 0.5)
+                    else:
+                        link_quality_reward = -15.0
+                except (ZeroDivisionError, ValueError):
+                    link_quality_reward = -15.0
             else:
                 link_quality_reward = -15.0
             
@@ -682,24 +686,34 @@ class SatelliteEnv:
                 loop_penalty = 0
             
             # 4. 区域导向奖励 (使用余弦相似度)
-            def get_region_vector(leo_name):
-                meo_name = self.leo_to_meo[leo_name]
-                meo_num = int(meo_name.replace('meo', ''))
-                return np.array([math.cos(2*math.pi*meo_num/len(self.meo_nodes)), 
-                               math.sin(2*math.pi*meo_num/len(self.meo_nodes))])
-            
-            next_vec = get_region_vector(next_leo)
-            dest_vec = get_region_vector(destination)
-            region_similarity = np.dot(next_vec, dest_vec) / (np.linalg.norm(next_vec) * np.linalg.norm(dest_vec))
-            region_reward = 10.0 * (region_similarity + 1) / 2  # 映射到[0,10]范围
+            try:
+                def get_region_vector(leo_name):
+                    meo_name = self.leo_to_meo[leo_name]
+                    meo_num = int(meo_name.replace('meo', ''))
+                    return np.array([math.cos(2*math.pi*meo_num/len(self.meo_nodes)), 
+                                   math.sin(2*math.pi*meo_num/len(self.meo_nodes))])
+                
+                next_vec = get_region_vector(next_leo)
+                dest_vec = get_region_vector(destination)
+                
+                # 添加保护以避免除零
+                norm_next = np.linalg.norm(next_vec)
+                norm_dest = np.linalg.norm(dest_vec)
+                if norm_next > 0 and norm_dest > 0:
+                    region_similarity = np.dot(next_vec, dest_vec) / (norm_next * norm_dest)
+                    region_reward = 10.0 * (region_similarity + 1) / 2
+                else:
+                    region_reward = 0
+            except (ValueError, ZeroDivisionError):
+                region_reward = 0
             
             # 5. 拥塞避免奖励 (使用sigmoid函数)
             if metrics:
                 link = (self.links_dict.get((path[-1], next_leo)) or 
                        self.links_dict.get((next_leo, path[-1])))
-                if link:
+                if link and link.max_packets > 0:
                     queue_ratio = len(link.packets['in_queue']) / link.max_packets
-                    congestion_penalty = -10.0 / (1 + math.exp(-10 * (queue_ratio - 0.7)))  # sigmoid函数
+                    congestion_penalty = -10.0 / (1 + math.exp(-10 * (queue_ratio - 0.7)))
                 else:
                     congestion_penalty = -5.0
             else:
