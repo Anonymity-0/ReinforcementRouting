@@ -134,14 +134,7 @@ def train_dqn():
             avg_rewards.append(total_reward)
             avg_reward = np.mean(avg_rewards)
             
-            # 在episode结束时使用当前episode的统计信息
-            path_stats = {
-                'sent': episode_packets['sent'],
-                'received': episode_packets['received'],
-                'dropped': episode_packets['dropped'],
-                'lost': episode_packets['lost']
-            }
-            
+            # 计算当前episode的平均指标
             current_metrics = {
                 'delay': np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0,
                 'bandwidth': np.mean(episode_metrics['bandwidth_utils']) if episode_metrics['bandwidth_utils'] else 0,
@@ -153,7 +146,7 @@ def train_dqn():
                 episode=episode,
                 episodes=NUM_EPISODES,
                 path=path,
-                path_stats=path_stats,  # 使用当前episode的统计信息
+                path_stats=episode_packets,  # 使用episode_packets而不是path_stats
                 metrics=current_metrics,
                 agent=agent,
                 env=env
@@ -295,17 +288,18 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
     print(f"\n训练轮次 {episode + 1}/{episodes}")
     print(f"路径: {' -> '.join(path)}")
     
-    total_sent = len(path_stats['sent'])
-    if total_sent > 0:
+    # 检查是否有数据包统计
+    if path_stats and path_stats['sent']:
         # 计算各种包的数量
-        dropped_packets = len(path_stats['dropped'])  # 队列丢弃
-        lost_packets = len(path_stats['lost'])       # 传输丢失
+        total_sent = len(path_stats['sent'])
+        dropped_packets = len(path_stats['dropped'])
+        lost_packets = len(path_stats['lost'])
         received_packets = len(path_stats['received'])
         in_transit_packets = total_sent - (dropped_packets + lost_packets + received_packets)
         
-        # 计算总丢包率（包括队列丢弃和传输丢失）
+        # 计算总丢包率
         total_lost = dropped_packets + lost_packets
-        total_loss_rate = (total_lost / total_sent) * 100
+        total_loss_rate = (total_lost / total_sent) * 100 if total_sent > 0 else 0
         
         print(f"\n数据包统计:")
         print(f"  - 总发送包数: {total_sent}")
@@ -315,15 +309,15 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
         
         print(f"\n性能指标:")
         print(f"  - 总丢包率: {total_loss_rate:.2f}%")
-        print(f"  - 传输成功率: {(received_packets/total_sent*100):.2f}%")
-        print(f"  - 在途率: {(in_transit_packets/total_sent*100):.2f}%")
+        print(f"  - 传输成功率: {(received_packets/total_sent*100):.2f}%" if total_sent > 0 else "  - 传输成功率: 0.00%")
+        print(f"  - 在途率: {(in_transit_packets/total_sent*100):.2f}%" if total_sent > 0 else "  - 在途率: 0.00%")
         
         # 打印链路性能指标
         if metrics:
             print(f"\n链路指标:")
             print(f"  - 延迟: {metrics['delay']:.2f} ms")
             print(f"  - 带宽: {metrics['bandwidth']:.2f} MHz")
-            print(f"  - 丢包率: {total_loss_rate:.2f}%")  # 使用相同的总丢包率
+            print(f"  - 丢包率: {total_loss_rate:.2f}%")
     
     print(f"\n其他信息:")
     print(f"路径长度: {len(path)}")
