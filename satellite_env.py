@@ -676,7 +676,7 @@ class SatelliteEnv:
         """获取LEO到MEO的映射关系"""
         return self.leo_to_meo 
 
-    def get_state(self, current_leo):
+    def _get_state(self, current_leo):
         """获取当前状态向量"""
         state = []
         
@@ -690,31 +690,32 @@ class SatelliteEnv:
         
         state.extend([
             current_traffic / QUEUE_CAPACITY,  # 归一化流量
-            current_queue_length / (self.max_packets if hasattr(self, 'max_packets') else 1000)  # 归一化队列长度
+            current_queue_length / (link.max_packets if hasattr(link, 'max_packets') else 1000)  # 归一化队列长度
         ])
         
         # 2. 邻居节点信息 (取前4个邻居)
         neighbors = list(self.leo_neighbors[current_leo])[:4]
         for neighbor in neighbors:
-            neighbor_traffic = 0
-            neighbor_queue = 0
             metrics = self._calculate_link_metrics(current_leo, neighbor)
-            
             if metrics:
                 state.extend([
                     metrics['delay'] / 100,  # 归一化延迟
                     metrics['bandwidth'] / 20,  # 归一化带宽
                     metrics['loss'] / 100,  # 归一化丢包率
-                    metrics['queue_utilization'] / 100  # 归一化队列利用率
+                    metrics['utilization'] / 100  # 归一化利用率
                 ])
             else:
                 state.extend([0, 0, 0, 0])
-            
+        
         # 补充邻居信息到固定长度
         missing_neighbors = 4 - len(neighbors)
         state.extend([0] * (missing_neighbors * 4))
         
-        return np.array(state, dtype=np.float32)  # 确保返回numpy数组
+        return np.array(state, dtype=np.float32)
+
+    def get_state(self, current_leo):
+        """获取状态的公共接口"""
+        return self._get_state(current_leo)
 
     def _find_k_shortest_paths_with_cross_region(self, source, destination, k, graph):
         """基于最小交叉区域的k最短路径算法"""

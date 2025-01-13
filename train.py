@@ -290,14 +290,16 @@ def train_dqn(env, agent, num_episodes=1000):
         
         while not done:
             # 获取状态和动作
-            state = env.get_state(current_leo)  # 使用环境的get_state方法
+            state = env.get_state(current_leo)
             available_actions = env.get_available_actions(current_leo)
             
             if not available_actions:
                 break
                 
             # 选择动作
-            action = agent.choose_action(state, available_actions)
+            action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
+            if action is None:
+                break
             
             # 执行动作
             next_leo = list(env.leo_nodes.keys())[action]
@@ -306,11 +308,12 @@ def train_dqn(env, agent, num_episodes=1000):
             # 记录性能指标
             metrics = info.get('link_stats', {})
             for key in ['delay', 'bandwidth', 'loss']:
-                metrics_history[key].append(metrics.get(key, 0))
+                if key in metrics:
+                    metrics_history[key].append(metrics[key])
             
             # 存储经验并训练
-            agent.store_transition(state, action, reward, next_state, done)
-            agent.train()
+            agent.memorize(state, action, reward, next_state, done)
+            agent.replay(BATCH_SIZE)
             
             # 更新状态
             current_leo = next_leo
@@ -323,18 +326,24 @@ def train_dqn(env, agent, num_episodes=1000):
         # 更新统计信息
         stats['episode_rewards'].append(episode_reward)
         stats['path_lengths'].append(len(path))
-        stats['delays'].append(np.mean(metrics_history['delay']))
-        stats['bandwidths'].append(np.mean(metrics_history['bandwidth']))
-        stats['losses'].append(np.mean(metrics_history['loss']))
+        if metrics_history['delay']:
+            stats['delays'].append(np.mean(metrics_history['delay']))
+        if metrics_history['bandwidth']:
+            stats['bandwidths'].append(np.mean(metrics_history['bandwidth']))
+        if metrics_history['loss']:
+            stats['losses'].append(np.mean(metrics_history['loss']))
         stats['success_rate'].append(1 if current_leo == destination else 0)
         
         # 打印训练信息
         print(f"\nEpisode {episode + 1}/{num_episodes}")
         print(f"奖励: {episode_reward:.2f}")
         print(f"路径长度: {len(path)}")
-        print(f"平均延迟: {np.mean(metrics_history['delay']):.2f} ms")
-        print(f"平均带宽: {np.mean(metrics_history['bandwidth']):.2f} MHz")
-        print(f"平均丢包率: {np.mean(metrics_history['loss']):.2f}%")
+        if metrics_history['delay']:
+            print(f"平均延迟: {np.mean(metrics_history['delay']):.2f} ms")
+        if metrics_history['bandwidth']:
+            print(f"平均带宽: {np.mean(metrics_history['bandwidth']):.2f} MHz")
+        if metrics_history['loss']:
+            print(f"平均丢包率: {np.mean(metrics_history['loss']):.2f}%")
         print(f"是否成功: {'是' if current_leo == destination else '否'}")
         print(f"路径: {' -> '.join(path)}")
         
