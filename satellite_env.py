@@ -201,14 +201,7 @@ class MEOController:
 class SatelliteEnv:
     def __init__(self):
         self.reset()
-        self.current_data_rate = DATA_GENERATION_RATE
-        # 添加数据包统计
-        self.packet_stats = {
-            'sent': set(),
-            'received': set(),
-            'dropped': set(),
-            'lost': set()
-        }
+        self.current_data_rate = DATA_GENERATION_RATE  # 添加这一行
         
     def reset(self):
         """重置环境状态"""
@@ -336,8 +329,34 @@ class SatelliteEnv:
 
     def _update_network_state(self):
         """更新网络状态"""
-        for link in self.links_dict.values():
-            self._calculate_link_metrics(link.node1.name, link.node2.name)
+        current_time = self.simulation_time
+        
+        # 更新所有链路的状态
+        for link in self.links:
+            # 只在距离上次更新超过间隔时更新
+            if current_time - link.last_update_time >= NETWORK_UPDATE_INTERVAL:
+                # 处理队列中的数据包
+                link.process_queue(current_time)
+                
+                # 更新链路性能指标
+                metrics = self._calculate_link_metrics(link.node1.name, link.node2.name)
+                if metrics:
+                    # 更新链路参数
+                    link.current_delay = metrics['delay']
+                    link.current_bandwidth = metrics['bandwidth']
+                    link.current_loss = metrics['loss'] / 100  # 转换回小数
+                    
+                    # 更新节点流量
+                    link.node1.traffic = len(link.packets['in_queue']) * PACKET_SIZE / 1024
+                    link.node2.traffic = link.node1.traffic
+                    
+                # 更新最后更新时间
+                link.last_update_time = current_time
+                
+        # 更新MEO控制器状态
+        for controller in self.meo_controllers.values():
+            controller.collect_leo_states()
+
     def _calculate_link_metrics(self, source, destination):
         """计算链路性能指标"""
         link = self.links_dict.get((source, destination)) or \
@@ -346,37 +365,130 @@ class SatelliteEnv:
         if not link:
             return None
         
-        # 确保基础延迟大于0
-        base_delay = max(0.1, link.base_delay)  # 设置最小延迟为0.1ms
+        # 计算实际卫星间距离
+        distance = self._calculate_satellite_distance(source, destination)
         
-        metrics = {
-            'delay': base_delay,  # 使用基础延迟作为初始值
-            'bandwidth': link.base_bandwidth,
-            'loss': 0.0
-        }
+        # 1. 延迟计算
+        # 1.1 传播延迟 (光速传播)
+        propagation_delay = distance / 300000 * 1000  # 转换为ms
         
-        total_packets = len(link.packets['in_queue']) + \
-                       len(link.packets['processed']) + \
-                       len(link.packets['dropped']) + \
-                       len(link.packets['lost'])
-                       
-        if total_packets > 0:
-            # 计算总的丢包率（包括队列丢弃和传输丢失）
-            total_lost = len(link.packets['dropped']) + len(link.packets['lost'])
-            metrics['loss'] = (total_lost / total_packets) * 100
+        # 1.2 排队和传输延迟计算
+        queue_size = len(link.packets['in_queue'])
+        if queue_size > 0:
+            # 计算单个数据包的传输时间
+            packet_bits = PACKET_SIZE * 8 * 1024  # bits
+            available_bandwidth = max(1, link.current_bandwidth) * 1e6  # bps
+            transmission_time = packet_bits / available_bandwidth * 1000  # ms
             
-            # 更新延迟：确保延迟始终大于0
-            if len(link.packets['processed']) > 0:
-                timestamps = [t for t in link.packet_timestamps.values() if t > 0]
-                if timestamps:
-                    actual_delay = sum(timestamps) / len(timestamps)
-                    metrics['delay'] = max(base_delay, actual_delay)  # 使用基础延迟和实际延迟的较大值
+            # 计算队列比例
+            queue_ratio = queue_size / link.max_packets
+            
+            # 考虑并行传输能力
+            parallel_capacity = 10  # 可以同时传输的数据包数
+            effective_queue_size = max(1, queue_size / parallel_capacity)
+            
+            # 计算排队延迟
+            if queue_ratio <= 0.5:
+                # 轻载状态：正常传输
+                queuing_delay = transmission_time * effective_queue_size
+            else:
+                # 重载状态：增加额外延迟
+                congestion_factor = 1 + (queue_ratio - 0.5)  # 最多增加50%
+                queuing_delay = transmission_time * effective_queue_size * congestion_factor
+                
+            # 传输延迟就是处理当前数据包所需的时间
+            transmission_delay = transmission_time
+            
+        else:
+            queuing_delay = 0
+            transmission_delay = 0
         
-        return metrics
+        # 总延迟 = 传播延迟 + 排队延迟 + 传输延迟
+        total_delay = propagation_delay + queuing_delay + transmission_delay
+        
+        # 2. 带宽计算
+        link_utilization = link.traffic / QUEUE_CAPACITY
+        congestion_factor = math.tanh(link_utilization)
+        effective_bandwidth = link.base_bandwidth * (1 - congestion_factor * 0.4)  # 最多降低40%带宽
+        
+        # 3. 丢包率计算
+        if link.max_packets > 0:
+            queue_drop_rate = len(link.packets['dropped']) / max(1, (len(link.packets['in_queue']) + 
+                                                                   len(link.packets['dropped'])))
+        else:
+            queue_drop_rate = 0
+        
+        base_loss_rate = link.base_loss * (1 + link_utilization)
+        weather_factor = link.weather_factor
+        transmission_loss_rate = base_loss_rate * weather_factor
+        total_loss_rate = queue_drop_rate + transmission_loss_rate - (queue_drop_rate * transmission_loss_rate)
+        
+        return {
+            'delay': total_delay,
+            'bandwidth': effective_bandwidth,
+            'loss': total_loss_rate * 100,
+            'utilization': link_utilization * 100,
+            'queue_delay': queuing_delay,
+            'transmission_delay': transmission_delay,
+            'propagation_delay': propagation_delay,
+            'queue_size': queue_size,
+            'max_queue': link.max_packets
+        }
+
+    def _calculate_satellite_distance(self, sat1, sat2):
+        """计算两颗卫星之间的距离(km)"""
+        # 从卫星名称中提取轨道和位置信息
+        orbit1, pos1 = self._get_orbit_position(sat1)
+        orbit2, pos2 = self._get_orbit_position(sat2)
+        
+        # LEO卫星轨道参数
+        altitude = 1000  # LEO轨道高度(km)
+        earth_radius = 6371  # 地球半径(km)
+        orbit_radius = earth_radius + altitude
+        sats_per_orbit = SATS_PER_ORBIT_LEO
+        num_orbits = NUM_ORBITS_LEO
+        
+        # 计算卫星在轨道平面中的角度
+        angle_in_orbit1 = 2 * math.pi * pos1 / sats_per_orbit
+        angle_in_orbit2 = 2 * math.pi * pos2 / sats_per_orbit
+        
+        # 计算轨道平面间的角度
+        orbit_angle = 2 * math.pi * (orbit1 - orbit2) / num_orbits
+        
+        # 计算两颗卫星的笛卡尔坐标
+        x1 = orbit_radius * math.cos(angle_in_orbit1)
+        y1 = orbit_radius * math.sin(angle_in_orbit1) * math.cos(orbit_angle)
+        z1 = orbit_radius * math.sin(angle_in_orbit1) * math.sin(orbit_angle)
+        
+        x2 = orbit_radius * math.cos(angle_in_orbit2)
+        y2 = orbit_radius * math.sin(angle_in_orbit2)
+        z2 = 0  # 参考轨道平面
+        
+        # 计算直线距离
+        distance = math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+        
+        return distance
+
+    def _get_orbit_position(self, sat_name):
+        """从卫星名称中提取轨道编号和位置编号"""
+        # 假设卫星名称格式为"leo{number}"
+        sat_num = int(sat_name.replace('leo', ''))
+        orbit_num = (sat_num - 1) // SATS_PER_ORBIT_LEO
+        position = (sat_num - 1) % SATS_PER_ORBIT_LEO
+        return orbit_num, position
+
     def _calculate_shannon_capacity(self, bandwidth, snr):
-        """计算香农容量"""
-        snr_linear = 10 ** (snr / 10)
-        capacity = (bandwidth * 1e6 * np.log2(1 + snr_linear)) / 1e6
+        """计算香农容量
+        
+        Args:
+            bandwidth: 带宽 (MHz)
+            snr: 信噪比 (dB)
+        
+        Returns:
+            float: 理论最大带宽 (MHz)
+        """
+        snr_linear = 10 ** (snr / 10)  # 转换为线性值
+        capacity = bandwidth * math.log2(1 + snr_linear)  # MHz
         return capacity
 
     def step(self, current_leo, action, path):
@@ -459,12 +571,6 @@ class SatelliteEnv:
             'link_stats': link_stats,
             'path_stats': self.path_stats
         }
-        
-        # 更新全局数据包统计
-        self.packet_stats['sent'].update(accepted_packets)
-        self.packet_stats['dropped'].update(dropped_packets)
-        self.packet_stats['lost'].update(lost_packets)
-        self.packet_stats['received'].update(processed_packets - lost_packets)
         
         return self._get_state(next_leo), reward, done, info
 
@@ -788,20 +894,3 @@ class SatelliteEnv:
             return available_actions
         
         return list(candidate_actions)  
-
-    def get_sent_packets(self):
-        """获取已发送的数据包"""
-        return self.path_stats['sent']
-
-    def get_received_packets(self):
-        """获取已接收的数据包"""
-        return self.path_stats['received']
-
-    def get_dropped_packets(self):
-        """获取队列丢弃的数据包"""
-        return self.path_stats['dropped']
-
-    def get_lost_packets(self):
-        """获取传输丢失的数据包"""
-        return self.path_stats['lost']
-    
