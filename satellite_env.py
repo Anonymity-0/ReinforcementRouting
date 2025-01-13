@@ -378,14 +378,13 @@ class SatelliteEnv:
         
         # 1.2 排队和传输延迟计算优化
         queue_size = len(link.packets['in_queue'])
+        queue_ratio = queue_size / link.max_packets if link.max_packets > 0 else 0  # 在这里定义queue_ratio
+        
         if queue_size > 0:
             # 计算单个数据包的传输时间
             packet_bits = PACKET_SIZE * 8 * 1024  # bits
             available_bandwidth = max(1, link.current_bandwidth) * 1e6  # bps
             transmission_time = (packet_bits / available_bandwidth * 1000) * 0.5
-            
-            # 优化排队延迟计算
-            queue_ratio = queue_size / link.max_packets
             
             # 动态并行处理能力
             base_parallel = max(1, int(link.current_bandwidth * 4))
@@ -396,32 +395,31 @@ class SatelliteEnv:
             if queue_ratio <= 0.3:  # 轻载
                 queuing_delay = transmission_time * (effective_queue_size / 12)
             elif queue_ratio <= 0.7:  # 中等负载
-                # 使用二次函数使延迟增长更快
                 load_factor = ((queue_ratio - 0.3) / 0.4) ** 2
                 queuing_delay = transmission_time * (effective_queue_size / 6) * (1 + load_factor)
             else:  # 重载
-                # 重载时延迟急剧增加
                 overload_factor = math.exp(queue_ratio - 0.7) - 1
                 queuing_delay = transmission_time * (effective_queue_size / 3) * (1 + overload_factor)
             
             # 动态传输延迟
-            congestion_impact = math.exp(queue_ratio) - 1  # 使用指数函数增加拥塞影响
+            congestion_impact = math.exp(queue_ratio) - 1
             transmission_delay = transmission_time * (1 + congestion_impact * 0.1)
             
         else:
             queuing_delay = 0
             transmission_delay = 0
+            transmission_time = 0
         
         # 计算链路质量影响
         link_quality = 1.0
         if link.weather_factor > 1.0:
-            link_quality *= (2 - link.weather_factor)  # 天气影响
+            link_quality *= (2 - link.weather_factor)
         if link.current_loss > link.base_loss:
             loss_ratio = link.current_loss / link.base_loss
-            link_quality *= (2 - min(loss_ratio, 1.5))  # 丢包影响
+            link_quality *= (2 - min(loss_ratio, 1.5))
         
         # 总延迟计算
-        processing_overhead = 0.02 * (2 - link_quality)  # 处理开销随链路质量变化
+        processing_overhead = 0.02 * (2 - link_quality)
         
         # 使用非线性组合
         total_delay = (
