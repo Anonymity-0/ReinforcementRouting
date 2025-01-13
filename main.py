@@ -1,10 +1,9 @@
-from train import train_dqn
-from satellite_env import SatelliteEnv
-from dqn_model import DQNAgent
+from train import train_and_evaluate
 import torch
 import random
 import numpy as np
 import time
+import argparse
 
 def set_random_seeds(seed=42):
     """设置随机种子以确保结果可重现"""
@@ -18,8 +17,21 @@ def set_random_seeds(seed=42):
         torch.backends.cudnn.benchmark = False
 
 def main():
+    # 创建参数解析器
+    parser = argparse.ArgumentParser(description='卫星网络路由训练程序')
+    parser.add_argument('--algo', type=str, default='dqn', choices=['dqn', 'ppo', 'mappo'],
+                      help='选择要训练的算法 (dqn, ppo, 或 mappo)')
+    parser.add_argument('--episodes', type=int, default=1000,
+                      help='训练回合数')
+    parser.add_argument('--eval_episodes', type=int, default=100,
+                      help='评估回合数')
+    parser.add_argument('--seed', type=int, default=42,
+                      help='随机种子')
+    
+    args = parser.parse_args()
+    
     # 设置随机种子
-    set_random_seeds()
+    set_random_seeds(args.seed)
     
     # 打印训练设备信息
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -27,11 +39,13 @@ def main():
     
     start_time = time.time()
     try:
-        # 训练模型
-        train_dqn()
-        
-        # 评估最终模型
-        evaluate_model('models/final_model.pth')
+        # 训练并评估选定的算法
+        print(f"\n开始训练 {args.algo.upper()} 算法...")
+        train_stats, eval_stats = train_and_evaluate(
+            algo_name=args.algo,
+            train_episodes=args.episodes,
+            eval_episodes=args.eval_episodes
+        )
         
     except KeyboardInterrupt:
         print("\n训练被用户中断")

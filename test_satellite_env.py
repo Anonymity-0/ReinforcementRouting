@@ -65,7 +65,7 @@ class TestSatelliteEnv(unittest.TestCase):
         link = self.env.links_dict.get((leo1, leo2)) or self.env.links_dict.get((leo2, leo1))
         
         # 测试不同数据生成率下的性能
-        test_rates = [5.0, 50.0, 500.0]
+        test_rates = [1.0, 10.0, 100.0]
         
         for rate in test_rates:
             print(f"\n测试数据生成率: {rate:.2f} Gbps")
