@@ -9,7 +9,7 @@ from collections import deque
 INITIAL_EPSILON = 0.9
 MIN_EPSILON = 0.1
 DECAY_RATE = 0.0001
-QUEUE_CAPACITY = 100  # MB
+QUEUE_CAPACITY = 150  # MB
 
 class DQNetwork(nn.Module):
     def __init__(self, state_size, action_size):
