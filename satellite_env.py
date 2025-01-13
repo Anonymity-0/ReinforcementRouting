@@ -557,40 +557,24 @@ class SatelliteEnv:
             metrics = {
                 'delay': link.base_delay,
                 'bandwidth': link.base_bandwidth,
-                'loss': link.base_loss
+                'loss': link.base_loss,
+                'utilization': 0,
+                'queue_size': len(link.packets['in_queue']),
+                'max_queue': link.max_packets
             }
-        
-        # 计算丢包
-        lost_packets = link.calculate_packet_loss(processed_packets, metrics['loss'])
-        
-        # 更新统计信息
-        self.path_stats['sent'].update(accepted_packets)
-        self.path_stats['dropped'].update(dropped_packets)
-        self.path_stats['lost'].update(lost_packets)
-        self.path_stats['received'].update(processed_packets - lost_packets)
         
         # 计算队列利用率
         queue_utilization = len(link.packets['in_queue']) / link.max_packets if link.max_packets > 0 else 0
-        bandwidth_utilization = link.traffic / QUEUE_CAPACITY if QUEUE_CAPACITY > 0 else 0
         
-        # 计算丢包率 (修改这部分)
-        total_packets = len(accepted_packets) + len(dropped_packets)
-        if total_packets > 0:
-            drop_rate = (len(dropped_packets) + len(lost_packets)) / total_packets * 100
-        else:
-            drop_rate = 0.0
-        
-        # 准备性能指标
+        # 更新链路统计信息
         link_stats = {
             'delay': metrics['delay'],
             'bandwidth': metrics['bandwidth'],
-            'loss': drop_rate,  # 使用新计算的丢包率
-            'queue_utilization': queue_utilization * 100,
-            'bandwidth_utilization': bandwidth_utilization * 100,
-            'packets_in_queue': len(link.packets['in_queue']),
-            'packets_processed': len(processed_packets),
-            'packets_dropped': len(dropped_packets),
-            'packets_lost': len(lost_packets)
+            'loss': metrics['loss'],
+            'utilization': metrics['utilization'],
+            'queue_utilization': queue_utilization * 100,  # 转换为百分比
+            'queue_size': metrics['queue_size'],
+            'max_queue': metrics['max_queue']
         }
         
         # 计算奖励
@@ -606,7 +590,7 @@ class SatelliteEnv:
             'path_stats': self.path_stats
         }
         
-        return self._get_state(next_leo), reward, done, info
+        return self.get_state(next_leo), reward, done, info
 
     def _generate_traffic_poisson(self, time_interval=1.0):
         """生成泊松分布的流量"""
@@ -676,7 +660,7 @@ class SatelliteEnv:
         """获取LEO到MEO的映射关系"""
         return self.leo_to_meo 
 
-    def _get_state(self, current_leo):
+    def get_state(self, current_leo):
         """获取当前状态向量"""
         state = []
         
@@ -690,32 +674,31 @@ class SatelliteEnv:
         
         state.extend([
             current_traffic / QUEUE_CAPACITY,  # 归一化流量
-            current_queue_length / (link.max_packets if hasattr(link, 'max_packets') else 1000)  # 归一化队列长度
+            current_queue_length / (self.max_packets if hasattr(self, 'max_packets') else 1000)  # 归一化队列长度
         ])
         
         # 2. 邻居节点信息 (取前4个邻居)
         neighbors = list(self.leo_neighbors[current_leo])[:4]
         for neighbor in neighbors:
+            neighbor_traffic = 0
+            neighbor_queue = 0
             metrics = self._calculate_link_metrics(current_leo, neighbor)
+            
             if metrics:
                 state.extend([
                     metrics['delay'] / 100,  # 归一化延迟
                     metrics['bandwidth'] / 20,  # 归一化带宽
                     metrics['loss'] / 100,  # 归一化丢包率
-                    metrics['utilization'] / 100  # 归一化利用率
+                    metrics['queue_utilization'] / 100  # 归一化队列利用率
                 ])
             else:
                 state.extend([0, 0, 0, 0])
-        
+            
         # 补充邻居信息到固定长度
         missing_neighbors = 4 - len(neighbors)
         state.extend([0] * (missing_neighbors * 4))
         
-        return np.array(state, dtype=np.float32)
-
-    def get_state(self, current_leo):
-        """获取状态的公共接口"""
-        return self._get_state(current_leo)
+        return np.array(state, dtype=np.float32)  # 确保返回numpy数组
 
     def _find_k_shortest_paths_with_cross_region(self, source, destination, k, graph):
         """基于最小交叉区域的k最短路径算法"""
