@@ -360,6 +360,47 @@ def evaluate_model(model_path, num_episodes=100):
     except Exception as e:
         print(f"评估过程出错: {str(e)}")
 
+def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env):
+    """打印每个episode的统计信息"""
+    print(f"\n训练轮次 {episode + 1}/{episodes}")
+    print(f"路径: {' -> '.join(path)}")
+    
+    total_sent = len(path_stats['sent'])
+    if total_sent > 0:
+        # 计算各种包的数量
+        dropped_packets = len(path_stats['dropped'])  # 队列丢弃
+        lost_packets = len(path_stats['lost'])       # 传输丢失
+        received_packets = len(path_stats['received'])
+        in_transit_packets = total_sent - (dropped_packets + lost_packets + received_packets)
+        
+        # 计算总丢包率（包括队列丢弃和传输丢失）
+        total_lost = dropped_packets + lost_packets
+        total_loss_rate = (total_lost / total_sent) * 100
+        
+        print(f"\n数据包统计:")
+        print(f"  - 总发送包数: {total_sent}")
+        print(f"  - 成功接收包数: {received_packets}")
+        print(f"  - 总丢失包数: {total_lost}")
+        print(f"  - 在途包数: {in_transit_packets}")
+        
+        print(f"\n性能指标:")
+        print(f"  - 总丢包率: {total_loss_rate:.2f}%")
+        print(f"  - 传输成功率: {(received_packets/total_sent*100):.2f}%")
+        print(f"  - 在途率: {(in_transit_packets/total_sent*100):.2f}%")
+        
+        # 打印链路性能指标
+        if metrics:
+            print(f"\n链路指标:")
+            print(f"  - 延迟: {metrics['delay']:.2f} ms")
+            print(f"  - 带宽: {metrics['bandwidth']:.2f} MHz")
+            print(f"  - 丢包率: {total_loss_rate:.2f}%")  # 使用相同的总丢包率
+    
+    print(f"\n其他信息:")
+    print(f"路径长度: {len(path)}")
+    print(f"奖励值: {metrics['rewards'][-1]:.2f}")
+    print(f"探索率: {agent.epsilon:.3f}")
+    print("-" * 50)
+
 def train():
     """训练入口函数"""
     start_time = time.time()
