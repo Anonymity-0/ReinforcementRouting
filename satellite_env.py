@@ -366,7 +366,11 @@ class SatelliteEnv:
             return None
         
         # 计算实际卫星间距离
-        distance = self._calculate_satellite_distance(source, destination)
+        try:
+            distance = self._calculate_satellite_distance(source, destination)
+        except ValueError:
+            # 如果涉及MEO卫星，使用默认距离
+            distance = 1000  # 默认距离为1000km
         
         # 1. 延迟计算优化
         # 1.1 传播延迟 (光速传播)
@@ -443,6 +447,10 @@ class SatelliteEnv:
 
     def _calculate_satellite_distance(self, sat1, sat2):
         """计算两颗卫星之间的距离(km)"""
+        # 检查是否涉及MEO卫星
+        if sat1.startswith('meo') or sat2.startswith('meo'):
+            return 1000  # MEO-LEO或MEO-MEO链路的默认距离
+        
         # 从卫星名称中提取轨道和位置信息
         orbit1, pos1 = self._get_orbit_position(sat1)
         orbit2, pos2 = self._get_orbit_position(sat2)
@@ -477,7 +485,6 @@ class SatelliteEnv:
 
     def _get_orbit_position(self, sat_name):
         """从卫星名称中提取轨道编号和位置编号"""
-        # 检查是否是LEO节点
         if not sat_name.startswith('leo'):
             raise ValueError(f"Invalid satellite name: {sat_name}. Only LEO satellites are supported.")
         
