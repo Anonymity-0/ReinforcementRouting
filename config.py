@@ -31,4 +31,11 @@ ALPHA = 0.1            # 学习率
 GAMMA = 0.9            # 折扣因子
 INITIAL_EPSILON = 0.9   # 初始探索率
 MIN_EPSILON = 0.1      # 最小探索率
-DECAY_RATE = 0.0001    # 探索率衰减速率 
+DECAY_RATE = 0.0001    # 探索率衰减速率
+
+# DQN训练参数
+NUM_EPISODES = 1000    # 训练回合数
+BATCH_SIZE = 32        # 批次大小
+TARGET_UPDATE = 10     # 目标网络更新频率
+LEARNING_RATE = 0.001  # 学习率
+MEMORY_SIZE = 2000     # 经验回放缓冲区大小 
