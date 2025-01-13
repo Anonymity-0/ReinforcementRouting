@@ -194,6 +194,17 @@ def train():
                 if action is None:
                     break
                 
+                # 执行动作前，确保数据包数量在合理范围内
+                link = env.get_link(current_leo, info['next_leo'])
+                if link:
+                    max_packets = link.max_packets
+                    current_packets = len(link.packets['in_queue'])
+                    if current_packets > max_packets:
+                        # 等待处理一些数据包
+                        process_time = env.simulation_time + (current_packets * link.base_delay)
+                        link.process_queue(process_time)
+                        env.simulation_time = process_time
+                
                 # 执行动作
                 next_state, reward, done, info = env.step(current_leo, action, path)
                 

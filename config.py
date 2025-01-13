@@ -11,7 +11,7 @@ INCLINATION = 55        # 轨道倾角(度)
 EARTH_RADIUS = 6371     # 地球半径(km)
 
 # 网络参数
-QUEUE_CAPACITY = 150    # 队列容量(MB)
+QUEUE_CAPACITY = 200    # 队列容量(MB)
 PACKET_SIZE = 25        # 数据包大小(KB)
 DATA_GENERATION_RATE = 1.0  # 数据生成率(Gbps)
 BANDWIDTH = 20          # 带宽(MHz)
