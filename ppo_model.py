@@ -56,10 +56,6 @@ class PPOAgent:
         self.log_probs = []
         self.masks = []
         
-    def get_state(self, env, current_leo, destination_leo):
-        """获取状态表示"""
-        return env.get_state(current_leo, destination_leo)
-        
     def choose_action(self, env, current_leo, destination):
         """选择动作"""
         available_actions = env.get_available_actions(current_leo)
@@ -68,12 +64,21 @@ class PPOAgent:
         
         # 获取状态
         state = env._get_state(current_leo)
-        state = torch.FloatTensor(state).unsqueeze(0)
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)  # 确保数据在正确的设备上
         
         with torch.no_grad():
             action_probs, value = self.actor_critic(state)
         
-        dist = Categorical(action_probs)
+        # 获取候选动作
+        candidate_actions = env.get_candidate_actions(current_leo, destination, available_actions)
+        
+        # 只考虑可用动作的概率分布
+        mask = torch.zeros_like(action_probs).to(self.device)
+        mask[0, candidate_actions] = 1
+        masked_probs = action_probs * mask
+        masked_probs = masked_probs / (masked_probs.sum() + 1e-10)
+        
+        dist = Categorical(masked_probs)
         action = dist.sample()
         
         # 存储经验
