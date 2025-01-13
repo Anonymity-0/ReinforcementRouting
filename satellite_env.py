@@ -374,45 +374,62 @@ class SatelliteEnv:
         
         # 1. 延迟计算优化
         # 1.1 传播延迟 (光速传播)
-        propagation_delay = (distance / 300000 * 1000) * 0.8  # 降低传播延迟的影响
+        propagation_delay = (distance / 300000 * 1000) * 0.8  # 基础传播延迟
         
         # 1.2 排队和传输延迟计算优化
         queue_size = len(link.packets['in_queue'])
         if queue_size > 0:
-            # 计算单个数据包的传输时间 (优化参数)
+            # 计算单个数据包的传输时间
             packet_bits = PACKET_SIZE * 8 * 1024  # bits
             available_bandwidth = max(1, link.current_bandwidth) * 1e6  # bps
-            transmission_time = (packet_bits / available_bandwidth * 1000) * 0.5  # 降低基础传输时间
+            transmission_time = (packet_bits / available_bandwidth * 1000) * 0.5
             
             # 优化排队延迟计算
             queue_ratio = queue_size / link.max_packets
             
-            # 增加并行处理能力
-            parallel_capacity = max(1, int(link.current_bandwidth * 4))  # 进一步增加并行处理能力
+            # 动态并行处理能力
+            base_parallel = max(1, int(link.current_bandwidth * 4))
+            parallel_capacity = base_parallel * (1 - queue_ratio * 0.5)  # 队列越满，并行能力越低
             effective_queue_size = max(1, queue_size / parallel_capacity)
             
-            # 大幅降低排队延迟
+            # 非线性排队延迟计算
             if queue_ratio <= 0.3:  # 轻载
-                queuing_delay = transmission_time * (effective_queue_size / 16)  # 进一步降低系数
+                queuing_delay = transmission_time * (effective_queue_size / 12)
             elif queue_ratio <= 0.7:  # 中等负载
-                queuing_delay = transmission_time * (effective_queue_size / 8)  # 进一步降低系数
+                # 使用二次函数使延迟增长更快
+                load_factor = ((queue_ratio - 0.3) / 0.4) ** 2
+                queuing_delay = transmission_time * (effective_queue_size / 6) * (1 + load_factor)
             else:  # 重载
-                congestion_factor = 1 + (queue_ratio - 0.7) * 0.3  # 进一步降低拥塞影响
-                queuing_delay = transmission_time * (effective_queue_size / 4) * congestion_factor
+                # 重载时延迟急剧增加
+                overload_factor = math.exp(queue_ratio - 0.7) - 1
+                queuing_delay = transmission_time * (effective_queue_size / 3) * (1 + overload_factor)
             
-            # 优化传输延迟
-            transmission_delay = transmission_time * (1 + queue_ratio * 0.05)  # 进一步降低队列影响
+            # 动态传输延迟
+            congestion_impact = math.exp(queue_ratio) - 1  # 使用指数函数增加拥塞影响
+            transmission_delay = transmission_time * (1 + congestion_impact * 0.1)
             
         else:
             queuing_delay = 0
             transmission_delay = 0
         
-        # 总延迟优化
-        processing_overhead = 0.02  # 进一步降低处理开销
-        total_delay = (propagation_delay * 0.8 +  # 降低传播延迟权重
-                      queuing_delay * 0.2 +  # 进一步降低排队延迟权重
-                      transmission_delay * 0.3 +  # 进一步降低传输延迟权重
-                      processing_overhead)
+        # 计算链路质量影响
+        link_quality = 1.0
+        if link.weather_factor > 1.0:
+            link_quality *= (2 - link.weather_factor)  # 天气影响
+        if link.current_loss > link.base_loss:
+            loss_ratio = link.current_loss / link.base_loss
+            link_quality *= (2 - min(loss_ratio, 1.5))  # 丢包影响
+        
+        # 总延迟计算
+        processing_overhead = 0.02 * (2 - link_quality)  # 处理开销随链路质量变化
+        
+        # 使用非线性组合
+        total_delay = (
+            propagation_delay * 0.8 +  # 传播延迟基础权重
+            queuing_delay * (0.3 + queue_ratio * 0.3) +  # 排队延迟权重随队列利用率增加
+            transmission_delay * (0.4 + queue_ratio * 0.2) +  # 传输延迟权重随队列利用率增加
+            processing_overhead
+        ) * (2 - link_quality)  # 链路质量影响因子
         
         
         # 2. 带宽计算
