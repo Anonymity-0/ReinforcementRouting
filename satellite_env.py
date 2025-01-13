@@ -974,29 +974,21 @@ class SatelliteEnv:
         Returns:
             list: 候选动作列表
         """
-        try:
-            # 获取所有可能的路径
-            paths = self._find_k_shortest_paths_with_cross_region(current_leo, destination, 3, self.leo_graph)
-            candidate_actions = set()
-            
-            # 从路径中提取下一步可能的动作
-            for path in paths:
-                if path and len(path) > 1:
-                    next_leo = path[1]  # 获取路径中的下一个节点
-                    # 将节点名称转换为动作索引
-                    try:
-                        action_idx = list(self.leo_nodes.keys()).index(next_leo)
-                        if action_idx in available_actions:
-                            candidate_actions.add(action_idx)
-                    except ValueError:
-                        continue
-            
-            # 如果没有找到候选动作，返回所有可用动作
-            if not candidate_actions:
-                return list(available_actions)
-            
-            return list(candidate_actions)
-            
-        except Exception as e:
-            print(f"获取候选动作时出错: {str(e)}")
-            return list(available_actions)  # 出错时返回所有可用动作  
+        # 获取所有可能的路径
+        paths = self._find_k_shortest_paths_with_cross_region(current_leo, destination, 3, self.leo_graph)
+        candidate_actions = set()
+        
+        # 从路径中提取下一步可能的动作
+        for path in paths:
+            if path and len(path) > 1:
+                next_leo = path[1]  # 获取路径中的下一个节点
+                # 将节点名称转换为动作索引
+                action_idx = list(self.leo_nodes.keys()).index(next_leo)
+                if action_idx in available_actions:
+                    candidate_actions.add(action_idx)
+        
+        # 如果没有找到候选动作，返回所有可用动作
+        if not candidate_actions:
+            return available_actions
+        
+        return list(candidate_actions)  
