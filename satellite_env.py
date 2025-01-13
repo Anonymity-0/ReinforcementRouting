@@ -720,11 +720,17 @@ class SatelliteEnv:
                 if neighbor is not None:
                     metrics = self._calculate_link_metrics(current_leo, neighbor)
                     if metrics:
+                        # 计算队列利用率
+                        link = (self.links_dict.get((current_leo, neighbor)) or 
+                               self.links_dict.get((neighbor, current_leo)))
+                        queue_utilization = (len(link.packets['in_queue']) / link.max_packets * 100 
+                                           if link and link.max_packets > 0 else 0)
+                        
                         state.extend([
                             min(1.0, metrics['delay'] / 100),  # 归一化延迟
                             min(1.0, metrics['bandwidth'] / 20),  # 归一化带宽
                             min(1.0, metrics['loss'] / 100),  # 归一化丢包率
-                            min(1.0, metrics['queue_utilization'] / 100)  # 归一化队列利用率
+                            min(1.0, queue_utilization / 100)  # 归一化队列利用率
                         ])
                     else:
                         state.extend([0, 0, 0, 0])
