@@ -388,23 +388,32 @@ def train_ppo(env, agent, num_episodes=1000):
                 if not available_actions:
                     print(f"没有可用动作，当前节点: {current_leo}")
                     break
-                    
-                # 选择动作
+                
+                # 修改：确保动作在有效范围内
                 action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
                 if action is None:
                     print(f"无法选择有效动作，当前节点: {current_leo}")
                     break
                 
-                # 获取下一个LEO节点
+                # 添加：验证动作的有效性
                 leo_names = list(env.leo_nodes.keys())
-                if action < 0 or action >= len(leo_names):
-                    print(f"无效的动作索引: {action}, 可用动作范围: 0-{len(leo_names)-1}")
+                if not (0 <= action < len(available_actions)):
+                    print(f"动作 {action} 超出可用动作范围 [0, {len(available_actions)-1}]")
                     break
-                    
-                next_leo = leo_names[action]
+                
+                # 修改：使用available_actions来获取下一个节点
+                next_leo = available_actions[action]
+                
+                # 执行动作前确保action在有效范围内
+                if next_leo not in env.leo_nodes:
+                    print(f"无效的目标节点: {next_leo}")
+                    break
+                
+                # 获取实际的动作索引
+                action_idx = list(env.leo_nodes.keys()).index(next_leo)
                 
                 # 执行动作
-                next_state, reward, done, info = env.step(current_leo, action, path)
+                next_state, reward, done, info = env.step(current_leo, action_idx, path)
                 
                 # 记录性能指标
                 metrics = info.get('link_stats', {})
