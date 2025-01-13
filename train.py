@@ -118,54 +118,31 @@ def train_dqn():
             avg_rewards.append(total_reward)
             avg_reward = np.mean(avg_rewards)
             
-            # 每个episode结束时打印汇总信息
-            print(f"\nEpisode {episode}/{NUM_EPISODES}")
-            source_meo = env.leo_to_meo[source]
-            dest_meo = env.leo_to_meo[destination]
-            print(f"源节点: {source}(MEO区域: {source_meo}) -> 目标节点: {destination}(MEO区域: {dest_meo})")
-            
-            # 打印完整路径及其MEO区域信息
-            path_info = []
-            for leo in path:
-                meo = env.leo_to_meo[leo]
-                path_info.append(f"{leo}({meo})")
-            print(f"路径: {' -> '.join(path_info)}")
-            
-            print(f"总奖励: {total_reward:.2f}")
-            print(f"平均奖励: {np.mean(avg_rewards):.2f}")
-            print(f"探索率: {agent.epsilon:.4f}")
-            
-            # 打印网络性能指标
-            if episode_metrics['delays']:
-                print("\n网络性能指标:")
-                print(f"平均延迟: {np.mean(episode_metrics['delays']):.2f} ms")
-                print(f"平均带宽利用率: {np.mean(episode_metrics['bandwidth_utils']):.2f}%")
-                print(f"平均丢包率: {np.mean(episode_metrics['loss_rates']):.2f}%")
-                print(f"平均队列利用率: {np.mean(episode_metrics['queue_utils']):.2f}%")
-                
-                # 添加MEO区域切换统计
-                meo_switches = sum(1 for i in range(len(path)-1) 
-                                 if env.leo_to_meo[path[i]] != env.leo_to_meo[path[i+1]])
-                print(f"MEO区域切换次数: {meo_switches}")
-            
-            # 构建path_stats字典
+            # 在episode结束时收集统计信息
             path_stats = {
-                'sent': info.get('packets_sent', []),
-                'received': info.get('packets_received', []),
-                'dropped': info.get('packets_dropped', []),
-                'lost': info.get('packets_lost', [])
+                'sent': env.get_sent_packets(),
+                'received': env.get_received_packets(),
+                'dropped': env.get_dropped_packets(),
+                'lost': env.get_lost_packets()
             }
             
-            # 构建metrics字典
-            metrics = {
+            current_metrics = {
                 'delay': np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0,
                 'bandwidth': np.mean(episode_metrics['bandwidth_utils']) if episode_metrics['bandwidth_utils'] else 0,
                 'rewards': episode_rewards
             }
             
-            # 使用print_episode_stats打印详细统计信息
-            print_episode_stats(episode, NUM_EPISODES, path, path_stats, metrics, agent, env)
-        
+            # 打印本轮统计信息
+            print_episode_stats(
+                episode=episode,
+                episodes=NUM_EPISODES,
+                path=path,
+                path_stats=path_stats,
+                metrics=current_metrics,
+                agent=agent,
+                env=env
+            )
+            
         # 训练结束后绘制性能指标曲线
         plt.figure(figsize=(15, 10))
         
