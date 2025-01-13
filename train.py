@@ -289,61 +289,67 @@ def train_dqn(env, agent, num_episodes=1000):
         metrics_history = defaultdict(list)
         
         while not done:
-            # 获取状态和动作
-            state = env.get_state(current_leo)
-            available_actions = env.get_available_actions(current_leo)
-            
-            if not available_actions:
-                break
+            try:
+                # 获取状态和动作
+                state = env.get_state(current_leo)
+                available_actions = env.get_available_actions(current_leo)
                 
-            # 选择动作
-            action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
-            if action is None:
-                break
-            
-            # 执行动作
-            next_leo = list(env.leo_nodes.keys())[action]
-            next_state, reward, done, info = env.step(current_leo, action, path)
-            
-            # 记录性能指标
-            metrics = info.get('link_stats', {})
-            for key in ['delay', 'bandwidth', 'loss']:
-                if key in metrics:
-                    metrics_history[key].append(metrics[key])
-            
-            # 存储经验并训练
-            agent.memorize(state, action, reward, next_state, done)
-            agent.replay(BATCH_SIZE)
-            
-            # 更新状态
-            current_leo = next_leo
-            path.append(current_leo)
-            episode_reward += reward
-            
-            if done or current_leo == destination:
+                if not available_actions:
+                    break
+                    
+                # 选择动作
+                action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
+                if action is None or action >= len(env.leo_nodes):  # 添加动作有效性检查
+                    break
+                
+                # 获取下一个LEO节点
+                leo_names = list(env.leo_nodes.keys())
+                if action < 0 or action >= len(leo_names):  # 添加索引检查
+                    print(f"无效的动作索引: {action}, 可用动作范围: 0-{len(leo_names)-1}")
+                    break
+                    
+                next_leo = leo_names[action]
+                
+                # 执行动作
+                next_state, reward, done, info = env.step(current_leo, action, path)
+                
+                # 记录性能指标
+                metrics = info.get('link_stats', {})
+                for key in ['delay', 'bandwidth', 'loss']:
+                    if key in metrics:
+                        metrics_history[key].append(metrics[key])
+                
+                # 存储经验并训练
+                agent.memorize(state, action, reward, next_state, done)
+                agent.replay(BATCH_SIZE)
+                
+                # 更新状态
+                current_leo = next_leo
+                path.append(current_leo)
+                episode_reward += reward
+                
+                if done or current_leo == destination:
+                    break
+                    
+            except Exception as e:
+                print(f"训练步骤出错: {str(e)}")
                 break
         
         # 更新统计信息
         stats['episode_rewards'].append(episode_reward)
         stats['path_lengths'].append(len(path))
-        if metrics_history['delay']:
-            stats['delays'].append(np.mean(metrics_history['delay']))
-        if metrics_history['bandwidth']:
-            stats['bandwidths'].append(np.mean(metrics_history['bandwidth']))
-        if metrics_history['loss']:
-            stats['losses'].append(np.mean(metrics_history['loss']))
+        for key in ['delay', 'bandwidth', 'loss']:
+            if metrics_history[key]:
+                stats[f'{key}s'].append(np.mean(metrics_history[key]))
         stats['success_rate'].append(1 if current_leo == destination else 0)
         
         # 打印训练信息
         print(f"\nEpisode {episode + 1}/{num_episodes}")
         print(f"奖励: {episode_reward:.2f}")
         print(f"路径长度: {len(path)}")
-        if metrics_history['delay']:
-            print(f"平均延迟: {np.mean(metrics_history['delay']):.2f} ms")
-        if metrics_history['bandwidth']:
-            print(f"平均带宽: {np.mean(metrics_history['bandwidth']):.2f} MHz")
-        if metrics_history['loss']:
-            print(f"平均丢包率: {np.mean(metrics_history['loss']):.2f}%")
+        for key in ['delay', 'bandwidth', 'loss']:
+            if metrics_history[key]:
+                print(f"平均{key}: {np.mean(metrics_history[key]):.2f}")
         print(f"是否成功: {'是' if current_leo == destination else '否'}")
         print(f"路径: {' -> '.join(path)}")
         
@@ -374,53 +380,77 @@ def train_ppo(env, agent, num_episodes=1000):
         metrics_history = defaultdict(list)
         
         while not done:
-            # 选择动作
-            action = agent.choose_action(env, current_leo, destination)
-            if action is None:
-                break
+            try:
+                # 获取状态和动作
+                state = env.get_state(current_leo)
+                available_actions = env.get_available_actions(current_leo)
                 
-            # 执行动作
-            next_leo = list(env.leo_nodes.keys())[action]
-            next_state, reward, done, info = env.step(current_leo, action, path)
-            
-            # 记录性能指标
-            metrics = info.get('link_stats', {})
-            for key in ['delay', 'bandwidth', 'loss']:
-                metrics_history[key].append(metrics.get(key, 0))
-            
-            # 存储奖励和mask
-            agent.rewards.append(reward)
-            agent.masks.append(1 - done)
-            
-            # 更新状态
-            current_leo = next_leo
-            path.append(current_leo)
-            episode_reward += reward
-            
-            if done:
-                # 获取最终状态值
-                final_state = env._get_state(current_leo)
-                final_state = torch.FloatTensor(final_state).unsqueeze(0).to(agent.device)
-                with torch.no_grad():
-                    _, final_value = agent.actor_critic(final_state)
-                # 更新策略
-                agent.update(final_value)
+                if not available_actions:
+                    break
+                    
+                # 选择动作
+                action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
+                if action is None or action >= len(env.leo_nodes):  # 添加动作有效性检查
+                    break
+                
+                # 获取下一个LEO节点
+                leo_names = list(env.leo_nodes.keys())
+                if action < 0 or action >= len(leo_names):  # 添加索引检查
+                    print(f"无效的动作索引: {action}, 可用动作范围: 0-{len(leo_names)-1}")
+                    break
+                    
+                next_leo = leo_names[action]
+                
+                # 执行动作
+                next_state, reward, done, info = env.step(current_leo, action, path)
+                
+                # 记录性能指标
+                metrics = info.get('link_stats', {})
+                for key in ['delay', 'bandwidth', 'loss']:
+                    if key in metrics:
+                        metrics_history[key].append(metrics[key])
+                
+                # 存储奖励和mask
+                agent.rewards.append(reward)
+                agent.masks.append(1 - done)
+                
+                # 更新状态
+                current_leo = next_leo
+                path.append(current_leo)
+                episode_reward += reward
+                
+                if done or current_leo == destination:
+                    # 获取最终状态值
+                    try:
+                        final_state = env.get_state(current_leo)
+                        final_state = torch.FloatTensor(final_state).unsqueeze(0).to(agent.device)
+                        with torch.no_grad():
+                            _, final_value = agent.actor_critic(final_state)
+                        # 更新策略
+                        agent.update(final_value)
+                    except Exception as e:
+                        print(f"策略更新出错: {str(e)}")
+                    break
+                    
+            except Exception as e:
+                print(f"训练步骤出错: {str(e)}")
+                break
         
         # 更新统计信息
         stats['episode_rewards'].append(episode_reward)
         stats['path_lengths'].append(len(path))
-        stats['delays'].append(np.mean(metrics_history['delay']))
-        stats['bandwidths'].append(np.mean(metrics_history['bandwidth']))
-        stats['losses'].append(np.mean(metrics_history['loss']))
+        for key in ['delay', 'bandwidth', 'loss']:
+            if metrics_history[key]:
+                stats[f'{key}s'].append(np.mean(metrics_history[key]))
         stats['success_rate'].append(1 if current_leo == destination else 0)
         
         # 打印训练信息
         print(f"\nEpisode {episode + 1}/{num_episodes}")
         print(f"奖励: {episode_reward:.2f}")
         print(f"路径长度: {len(path)}")
-        print(f"平均延迟: {np.mean(metrics_history['delay']):.2f} ms")
-        print(f"平均带宽: {np.mean(metrics_history['bandwidth']):.2f} MHz")
-        print(f"平均丢包率: {np.mean(metrics_history['loss']):.2f}%")
+        for key in ['delay', 'bandwidth', 'loss']:
+            if metrics_history[key]:
+                print(f"平均{key}: {np.mean(metrics_history[key]):.2f}")
         print(f"是否成功: {'是' if current_leo == destination else '否'}")
         print(f"路径: {' -> '.join(path)}")
     

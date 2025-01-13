@@ -56,38 +56,57 @@ class PPOAgent:
         self.log_probs = []
         self.masks = []
         
-    def choose_action(self, env, current_leo, destination):
+    def choose_action(self, state, available_actions, env, current_leo, destination, path):
         """选择动作"""
-        available_actions = env.get_available_actions(current_leo)
         if not available_actions:
             return None
         
-        # 获取状态
-        state = env._get_state(current_leo)
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)  # 确保数据在正确的设备上
-        
-        with torch.no_grad():
-            action_probs, value = self.actor_critic(state)
-        
-        # 获取候选动作
-        candidate_actions = env.get_candidate_actions(current_leo, destination, available_actions)
-        
-        # 只考虑可用动作的概率分布
-        mask = torch.zeros_like(action_probs).to(self.device)
-        mask[0, candidate_actions] = 1
-        masked_probs = action_probs * mask
-        masked_probs = masked_probs / (masked_probs.sum() + 1e-10)
-        
-        dist = Categorical(masked_probs)
-        action = dist.sample()
-        
-        # 存储经验
-        self.states.append(state)
-        self.actions.append(action)
-        self.values.append(value)
-        self.log_probs.append(dist.log_prob(action))
-        
-        return action.item()
+        try:
+            # 移除会导致环路的动作
+            non_loop_actions = [a for a in available_actions 
+                               if a < len(self.leo_names) and  # 确保动作索引有效
+                               self.leo_names[a] not in path]
+            if not non_loop_actions:
+                return None
+            
+            # 获取候选动作
+            candidate_actions = env.get_candidate_actions(current_leo, destination, non_loop_actions)
+            
+            # 将状态转换为tensor
+            state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            
+            # 获取动作概率分布
+            with torch.no_grad():
+                action_probs, _ = self.actor_critic(state)
+                action_probs = action_probs.squeeze()
+            
+            # 只考虑有效动作的概率
+            valid_probs = torch.zeros_like(action_probs)
+            valid_actions = candidate_actions if candidate_actions else non_loop_actions
+            for action in valid_actions:
+                if action < len(action_probs):
+                    valid_probs[action] = action_probs[action]
+            
+            # 如果没有有效概率，返回None
+            if valid_probs.sum() == 0:
+                return None
+            
+            # 归一化概率
+            valid_probs = valid_probs / valid_probs.sum()
+            
+            # 采样动作
+            action = torch.multinomial(valid_probs, 1).item()
+            
+            # 检查动作有效性
+            if action >= len(self.leo_names):
+                print(f"无效的动作索引: {action}, 最大允许值: {len(self.leo_names)-1}")
+                return None
+            
+            return action
+            
+        except Exception as e:
+            print(f"选择动作时出错: {str(e)}")
+            return None
         
     def update(self, next_value):
         """更新策略"""
