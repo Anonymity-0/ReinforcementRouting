@@ -70,40 +70,15 @@ def train_dqn():
             }
             
             while step < MAX_PATH_LENGTH:
-                # 获取当前状态
                 state = agent.get_state(env, current_leo, destination)
-                
-                # 获取可用动作
                 available_actions = env.get_available_actions(current_leo)
-                
-                # 选择动作
                 action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
                 
                 if action is None:
                     break
                     
-                # 执行动作
                 next_leo = env.get_leo_names()[action]
                 next_state, reward, done, info = env.step(current_leo, action, path)
-                
-                # 存储经验
-                agent.memorize(state, action, reward, next_state, done)
-                
-                # 经验回放
-                if len(agent.memory) > BATCH_SIZE:
-                    agent.replay(BATCH_SIZE)
-                
-                total_reward += reward
-                current_leo = next_leo
-                path.append(current_leo)
-                
-                # 收集当前链路的性能指标
-                if info and 'link_stats' in info:
-                    stats = info['link_stats']
-                    episode_metrics['delays'].append(stats['delay'])
-                    episode_metrics['bandwidth_utils'].append(stats['bandwidth_utilization'])
-                    episode_metrics['loss_rates'].append(stats['loss'])
-                    episode_metrics['queue_utils'].append(stats['queue_utilization'])
                 
                 # 更新当前episode的数据包统计
                 if 'packets' in info:
@@ -112,12 +87,47 @@ def train_dqn():
                     episode_packets['dropped'].update(info['packets']['dropped'])
                     episode_packets['lost'].update(info['packets']['lost'])
                 
-                # 提前检查是否完成或到达目标
+                # 获取当前链路的指标
+                current_metrics = None
+                if info and 'link_stats' in info:
+                    stats = info['link_stats']
+                    current_metrics = {
+                        'delay': stats['delay'],
+                        'bandwidth': stats['bandwidth'],
+                        'loss_rate': stats['loss'],
+                        'rewards': [reward]  # 当前步骤的奖励
+                    }
+                    
+                    # 收集指标用于episode统计
+                    episode_metrics['delays'].append(stats['delay'])
+                    episode_metrics['bandwidth_utils'].append(stats['bandwidth_utilization'])
+                    episode_metrics['loss_rates'].append(stats['loss'])
+                    episode_metrics['queue_utils'].append(stats['queue_utilization'])
+                
+                # 打印当前步骤的统计信息
+                print_episode_stats(
+                    episode=episode,
+                    episodes=NUM_EPISODES,
+                    path=path + [next_leo],  # 包含下一个节点
+                    path_stats=episode_packets,
+                    metrics=current_metrics,
+                    agent=agent,
+                    env=env
+                )
+                
+                agent.memorize(state, action, reward, next_state, done)
+                if len(agent.memory) > BATCH_SIZE:
+                    agent.replay(BATCH_SIZE)
+                
+                total_reward += reward
+                current_leo = next_leo
+                path.append(current_leo)
+                
                 if done or current_leo == destination:
                     break
                     
                 step += 1
-                
+            
             # 计算并记录本回合的平均指标
             if episode_metrics['delays']:
                 network_metrics['avg_delay'].append(np.mean(episode_metrics['delays']))
