@@ -632,20 +632,33 @@ class SatelliteEnv:
 
     def _calculate_reward(self, next_leo, destination, metrics, path):
         """计算奖励"""
+        # 基础奖励
         if next_leo == destination:
-            return 20.0 + max(0, (MAX_PATH_LENGTH - len(path)) * 0.5)
+            path_efficiency = max(0, (MAX_PATH_LENGTH - len(path)) / MAX_PATH_LENGTH)
+            return 50.0 * path_efficiency  # 根据路径长度效率给予奖励
         
-        reward = -0.05  # 基础惩罚
+        # 计算到目标的距离变化
+        prev_distance = len(self._modified_dijkstra(path[-2], destination, set()) or [])
+        curr_distance = len(self._modified_dijkstra(next_leo, destination, set()) or [])
+        distance_reward = (prev_distance - curr_distance) * 2
         
-        # 同区域奖励
-        if self.leo_to_meo[next_leo] == self.leo_to_meo[destination]:
-            reward += 1.0
-            
-        # 环路惩罚
-        if next_leo in path:
-            reward -= 0.5
-            
-        return reward
+        # 链路质量奖励
+        link_quality_reward = 0
+        if metrics:
+            delay_penalty = -metrics['delay'] / 100
+            bandwidth_reward = metrics['bandwidth'] / 20
+            loss_penalty = -metrics['loss'] / 50
+            link_quality_reward = delay_penalty + bandwidth_reward + loss_penalty
+        
+        # 路径循环惩罚
+        loop_penalty = -10 if next_leo in path[:-1] else 0
+        
+        # 区域导向奖励
+        region_reward = 2.0 if self.leo_to_meo[next_leo] == self.leo_to_meo[destination] else 0
+        
+        total_reward = distance_reward + link_quality_reward + loop_penalty + region_reward
+        
+        return total_reward
 
     def get_state_size(self):
         """获取状态空间大小"""
