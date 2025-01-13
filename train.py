@@ -87,11 +87,21 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
     
     total_sent = len(path_stats['sent'])
     if total_sent > 0:
+        # 确保每个数据包只被计算一次
         dropped_packets = len(path_stats['dropped'])
         lost_packets = len(path_stats['lost'])
         received_packets = len(path_stats['received'])
-        in_transit_packets = sum(len(link.packets['in_queue']) for link in env.links_dict.values())
         
+        # 计算在途数据包时,只统计当前仍在队列中的数据包
+        in_transit_packets = 0
+        counted_packets = set()
+        for link in env.links_dict.values():
+            # 只统计未被计入其他类别的数据包
+            new_packets = link.packets['in_queue'] - counted_packets
+            in_transit_packets += len(new_packets)
+            counted_packets.update(new_packets)
+        
+        # 计算各种比率
         drop_rate = (dropped_packets / total_sent) * 100
         loss_rate = (lost_packets / total_sent) * 100
         success_rate = (received_packets / total_sent) * 100
@@ -109,11 +119,11 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
         print(f"Success rate: {success_rate:.2f}%")
         print(f"In-transit rate: {in_transit_rate:.2f}%")
         
+        # 验证数据包统计的准确性
         total_accounted = received_packets + dropped_packets + lost_packets + in_transit_packets
-        accounting_rate = (total_accounted / total_sent) * 100
-        if abs(accounting_rate - 100) > 0.1:
-            print(f"Warning: Packet accounting mismatch! Total accounted packets: {total_accounted}, "
-                  f"Total sent: {total_sent}, Rate: {accounting_rate:.2f}%")
+        if abs(total_accounted - total_sent) > 0:
+            print(f"Warning: Packet accounting mismatch! "
+                  f"Total accounted: {total_accounted}, Total sent: {total_sent}")
     
     print(f"Path length: {len(path)}")
     print(f"Reward: {metrics['rewards'][-1]:.2f}")

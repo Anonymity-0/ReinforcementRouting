@@ -90,17 +90,16 @@ class Link:
         time_delta = current_time - self.last_process_time
         if time_delta <= 0:
             return set()
-       
         
         # 计算在给定时间内可以处理的数据包数量
-        bits_per_packet = PACKET_SIZE * 8 * 1024  # 每个数据包的比特数
-        available_bandwidth = self.current_bandwidth * 1e6  # 转换为 bps
-        processable_bits = available_bandwidth * (time_delta / 1000.0)  # 可处理的总比特数
-        packets_can_process = max(1, int(processable_bits / bits_per_packet))  # 确保至少处理1个包
-        
+        bits_per_packet = PACKET_SIZE * 8 * 1024
+        available_bandwidth = self.current_bandwidth * 1e6
+        processable_bits = available_bandwidth * (time_delta / 1000.0)
+        packets_can_process = max(1, int(processable_bits / bits_per_packet))
         
         # 处理数据包
         processed_packets = set()
+        lost_packets = set()
         packets_to_process = sorted(
             [(pid, self.packet_timestamps[pid]) for pid in self.packets['in_queue']],
             key=lambda x: x[1]
@@ -108,18 +107,22 @@ class Link:
         
         # 增加基于队列长度的丢包概率
         queue_utilization = len(self.packets['in_queue']) / self.max_packets
-        base_loss_rate = self.current_loss * (1 + queue_utilization)  # 根据队列利用率调整丢包率
+        base_loss_rate = self.current_loss * (1 + queue_utilization)
         
         for packet_id, _ in packets_to_process:
-            self.packets['in_queue'].remove(packet_id)
-            # 根据丢包率决定是否丢弃数据包
-            if random.random() < base_loss_rate:
-                self.packets['lost'].add(packet_id)
-            else:
-                self.packets['processed'].add(packet_id)
-                processed_packets.add(packet_id)
-            del self.packet_timestamps[packet_id]
-          
+            # 确保数据包状态的互斥性
+            if packet_id in self.packets['in_queue']:
+                self.packets['in_queue'].remove(packet_id)
+                
+                if random.random() < base_loss_rate:
+                    self.packets['lost'].add(packet_id)
+                    lost_packets.add(packet_id)
+                else:
+                    self.packets['processed'].add(packet_id)
+                    processed_packets.add(packet_id)
+                    
+                del self.packet_timestamps[packet_id]
+        
         self.traffic = len(self.packets['in_queue']) * PACKET_SIZE / 1024
         self.last_process_time = current_time
         
@@ -808,3 +811,21 @@ class SatelliteEnv:
             return available_actions
         
         return list(candidate_actions)  
+
+    def _cleanup_expired_packets(self):
+        """清理过期的数据包"""
+        current_time = self.simulation_time
+        timeout = UPDATE_INTERVAL * 2  # 设置超时时间
+        
+        for link in self.links_dict.values():
+            expired_packets = set()
+            for packet_id, timestamp in link.packet_timestamps.items():
+                if current_time - timestamp > timeout:
+                    expired_packets.add(packet_id)
+            
+            # 清理过期数据包
+            for packet_id in expired_packets:
+                if packet_id in link.packets['in_queue']:
+                    link.packets['in_queue'].remove(packet_id)
+                    link.packets['lost'].add(packet_id)
+                    del link.packet_timestamps[packet_id]  
