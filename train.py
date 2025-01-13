@@ -148,24 +148,23 @@ def train_dqn():
                                  if env.leo_to_meo[path[i]] != env.leo_to_meo[path[i+1]])
                 print(f"MEO区域切换次数: {meo_switches}")
             
-            # 每10个回合打印一次详细信息
-            if episode % 10 == 0:
-                # 构建path_stats字典
-                path_stats = {
-                    'sent': info.get('packets_sent', []),
-                    'received': info.get('packets_received', []),
-                    'dropped': info.get('packets_dropped', []),
-                    'lost': info.get('packets_lost', [])
-                }
-                
-                # 构建metrics字典
-                metrics = {
-                    'delay': np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0,
-                    'bandwidth': np.mean(episode_metrics['bandwidth_utils']) if episode_metrics['bandwidth_utils'] else 0,
-                    'rewards': episode_rewards
-                }
-                
-                print_episode_stats(episode, NUM_EPISODES, path, path_stats, metrics, agent, env)
+            # 构建path_stats字典
+            path_stats = {
+                'sent': info.get('packets_sent', []),
+                'received': info.get('packets_received', []),
+                'dropped': info.get('packets_dropped', []),
+                'lost': info.get('packets_lost', [])
+            }
+            
+            # 构建metrics字典
+            metrics = {
+                'delay': np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0,
+                'bandwidth': np.mean(episode_metrics['bandwidth_utils']) if episode_metrics['bandwidth_utils'] else 0,
+                'rewards': episode_rewards
+            }
+            
+            # 每个episode都打印详细统计信息
+            print_episode_stats(episode, NUM_EPISODES, path, path_stats, metrics, agent, env)
         
         # 训练结束后绘制性能指标曲线
         plt.figure(figsize=(15, 10))
