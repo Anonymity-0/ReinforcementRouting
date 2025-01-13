@@ -31,10 +31,25 @@ def train_dqn():
     avg_rewards = deque(maxlen=100)
     best_avg_reward = float('-inf')
     
+    # 添加网络指标统计
+    network_metrics = {
+        'avg_delay': [],
+        'avg_bandwidth_util': [],
+        'avg_loss_rate': [],
+        'avg_queue_util': []
+    }
+    
     print("\n开始训练...")
     try:
         for episode in range(NUM_EPISODES):
             total_reward = 0
+            episode_metrics = {
+                'delays': [],
+                'bandwidth_utils': [],
+                'loss_rates': [],
+                'queue_utils': []
+            }
+            
             state_size, action_size = env.reset()
             
             # 随机选择源节点和目标节点
@@ -78,6 +93,30 @@ def train_dqn():
                     break
                     
                 step += 1
+                
+                # 收集当前链路的性能指标
+                if info and 'next_leo' in info:
+                    metrics = env._calculate_link_metrics(current_leo, info['next_leo'])
+                    if metrics:
+                        episode_metrics['delays'].append(metrics['delay'])
+                        episode_metrics['bandwidth_utils'].append(
+                            env.links_dict.get((current_leo, info['next_leo']) or 
+                            (info['next_leo'], current_leo)).traffic / QUEUE_CAPACITY
+                        )
+                        episode_metrics['loss_rates'].append(metrics['loss'])
+                        episode_metrics['queue_utils'].append(
+                            len(env.links_dict.get((current_leo, info['next_leo']) or 
+                            (info['next_leo'], current_leo)).packets['in_queue']) / 
+                            env.links_dict.get((current_leo, info['next_leo']) or 
+                            (info['next_leo'], current_leo)).max_packets
+                        )
+                
+            # 计算并记录本回合的平均指标
+            if episode_metrics['delays']:
+                network_metrics['avg_delay'].append(np.mean(episode_metrics['delays']))
+                network_metrics['avg_bandwidth_util'].append(np.mean(episode_metrics['bandwidth_utils']))
+                network_metrics['avg_loss_rate'].append(np.mean(episode_metrics['loss_rates']))
+                network_metrics['avg_queue_util'].append(np.mean(episode_metrics['queue_utils']))
             
             # 更新目标网络
             if episode % TARGET_UPDATE == 0:
@@ -88,7 +127,7 @@ def train_dqn():
             avg_rewards.append(total_reward)
             avg_reward = np.mean(avg_rewards)
             
-            # 打印训练进度
+            # 每10个回合打印一次详细信息
             if episode % 10 == 0:
                 print(f"\nEpisode {episode}/{NUM_EPISODES}")
                 print(f"源节点: {source} -> 目标节点: {destination}")
@@ -97,24 +136,59 @@ def train_dqn():
                 print(f"平均奖励: {avg_reward:.2f}")
                 print(f"探索率: {agent.epsilon:.4f}")
                 
-                # 如果性能提升，保存模型
-                if avg_reward > best_avg_reward:
-                    best_avg_reward = avg_reward
-                    model_path = os.path.join(model_dir, 'best_model.pth')
-                    torch.save(agent.policy_net.state_dict(), model_path)
-                    print(f"保存最佳模型，平均奖励: {best_avg_reward:.2f}")
+                # 打印网络性能指标
+                if episode_metrics['delays']:
+                    print("\n网络性能指标:")
+                    print(f"平均延迟: {np.mean(episode_metrics['delays']):.2f} ms")
+                    print(f"平均带宽利用率: {np.mean(episode_metrics['bandwidth_utils'])*100:.2f}%")
+                    print(f"平均丢包率: {np.mean(episode_metrics['loss_rates']):.2f}%")
+                    print(f"平均队列利用率: {np.mean(episode_metrics['queue_utils'])*100:.2f}%")
         
-        # 训练结束后绘制奖励曲线
-        plt.figure(figsize=(10, 5))
+        # 训练结束后绘制性能指标曲线
+        plt.figure(figsize=(15, 10))
+        
+        # 绘制奖励曲线
+        plt.subplot(2, 2, 1)
         plt.plot(episode_rewards)
         plt.title('训练奖励曲线')
         plt.xlabel('Episode')
         plt.ylabel('Total Reward')
-        plt.savefig('training_rewards.png')
+        
+        # 绘制延迟曲线
+        plt.subplot(2, 2, 2)
+        plt.plot(network_metrics['avg_delay'])
+        plt.title('平均延迟变化')
+        plt.xlabel('Episode')
+        plt.ylabel('Delay (ms)')
+        
+        # 绘制带宽利用率曲线
+        plt.subplot(2, 2, 3)
+        plt.plot(network_metrics['avg_bandwidth_util'])
+        plt.title('平均带宽利用率变化')
+        plt.xlabel('Episode')
+        plt.ylabel('Bandwidth Utilization (%)')
+        
+        # 绘制丢包率曲线
+        plt.subplot(2, 2, 4)
+        plt.plot(network_metrics['avg_loss_rate'])
+        plt.title('平均丢包率变化')
+        plt.xlabel('Episode')
+        plt.ylabel('Loss Rate (%)')
+        
+        plt.tight_layout()
+        plt.savefig('training_metrics.png')
         plt.close()
+        
+        # 保存训练指标数据
+        np.save('network_metrics.npy', network_metrics)
         
         print("\n训练完成!")
         print(f"最佳平均奖励: {best_avg_reward:.2f}")
+        print("\n最终网络性能:")
+        print(f"平均延迟: {np.mean(network_metrics['avg_delay'][-100:]):.2f} ms")
+        print(f"平均带宽利用率: {np.mean(network_metrics['avg_bandwidth_util'][-100:])*100:.2f}%")
+        print(f"平均丢包率: {np.mean(network_metrics['avg_loss_rate'][-100:]):.2f}%")
+        print(f"平均队列利用率: {np.mean(network_metrics['avg_queue_util'][-100:])*100:.2f}%")
         
     except KeyboardInterrupt:
         print("\n训练被用户中断")
@@ -122,7 +196,7 @@ def train_dqn():
         print(f"\n训练出错: {str(e)}")
     finally:
         # 保存最终模型
-        torch.save(agent.policy_net.state_dict(), 'final_model.pth')
+        torch.save(agent.policy_net.state_dict(), os.path.join(model_dir, 'final_model.pth'))
         print("已保存最终模型")
 
 def evaluate_model(model_path, num_episodes=100):
