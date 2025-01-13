@@ -12,7 +12,7 @@ EARTH_RADIUS = 6371     # 地球半径(km)
 
 # 网络参数
 QUEUE_CAPACITY = 300    # 队列容量(MB)
-PACKET_SIZE = 20        # 数据包大小(KB)
+PACKET_SIZE = 15        # 数据包大小(KB)
 DATA_GENERATION_RATE = 1.5  # 数据生成率(Gbps)
 BANDWIDTH = 20          # 带宽(MHz)
 BASE_LOSS_RATE = 0.05   # 基础丢包率(5%)
