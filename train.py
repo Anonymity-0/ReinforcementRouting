@@ -259,9 +259,16 @@ def plot_training_curves(algo_name, stats):
     plt.savefig(f'results/{algo_name}_training_curves.png')
     plt.close()
 
-def train_ppo(env, agent, num_episodes=1000):
-    """训练PPO智能体"""
-    # 训练统计
+def get_random_leo_pair(env):
+    """随机选择一对不同的LEO卫星作为起点和终点"""
+    all_leos = list(env.leo_nodes.keys())
+    start = random.choice(all_leos)
+    # 确保终点与起点不同
+    end = random.choice([leo for leo in all_leos if leo != start])
+    return start, end
+
+def train_dqn(env, agent, num_episodes=1000):
+    """训练DQN智能体"""
     stats = {
         'episode_rewards': [],
         'path_lengths': [],
@@ -274,8 +281,81 @@ def train_ppo(env, agent, num_episodes=1000):
     for episode in range(num_episodes):
         # 重置环境
         env.reset()
-        current_leo = "leo1"  # 起始节点
-        destination = "leo17"  # 目标节点
+        # 随机选择起点和终点
+        current_leo, destination = get_random_leo_pair(env)
+        path = [current_leo]
+        done = False
+        episode_reward = 0
+        metrics_history = defaultdict(list)
+        
+        while not done:
+            # 获取状态和动作
+            state = env._get_state(current_leo)
+            available_actions = env.get_available_actions(current_leo)
+            
+            if not available_actions:
+                break
+                
+            # 选择动作
+            action = agent.select_action(state, available_actions)
+            
+            # 执行动作
+            next_leo = list(env.leo_nodes.keys())[action]
+            next_state, reward, done, info = env.step(current_leo, action, path)
+            
+            # 记录性能指标
+            metrics = info.get('link_stats', {})
+            for key in ['delay', 'bandwidth', 'loss']:
+                metrics_history[key].append(metrics.get(key, 0))
+            
+            # 存储经验并训练
+            agent.memorize(state, action, reward, next_state, done)
+            agent.train()
+            
+            # 更新状态
+            current_leo = next_leo
+            path.append(current_leo)
+            episode_reward += reward
+        
+        # 更新统计信息
+        stats['episode_rewards'].append(episode_reward)
+        stats['path_lengths'].append(len(path))
+        stats['delays'].append(np.mean(metrics_history['delay']))
+        stats['bandwidths'].append(np.mean(metrics_history['bandwidth']))
+        stats['losses'].append(np.mean(metrics_history['loss']))
+        stats['success_rate'].append(1 if current_leo == destination else 0)
+        
+        # 打印训练信息
+        print(f"\nEpisode {episode + 1}/{num_episodes}")
+        print(f"奖励: {episode_reward:.2f}")
+        print(f"路径长度: {len(path)}")
+        print(f"平均延迟: {np.mean(metrics_history['delay']):.2f} ms")
+        print(f"平均带宽: {np.mean(metrics_history['bandwidth']):.2f} MHz")
+        print(f"平均丢包率: {np.mean(metrics_history['loss']):.2f}%")
+        print(f"是否成功: {'是' if current_leo == destination else '否'}")
+        print(f"路径: {' -> '.join(path)}")
+        
+        # 更新探索率
+        agent.update_epsilon()
+    
+    return stats
+
+def train_ppo(env, agent, num_episodes=1000):
+    """训练PPO智能体"""
+    stats = {
+        'episode_rewards': [],
+        'path_lengths': [],
+        'delays': [],
+        'bandwidths': [],
+        'losses': [],
+        'success_rate': []
+    }
+    
+    for episode in range(num_episodes):
+        # 重置环境
+        env.reset()
+        # 随机选择起点和终点
+        current_leo, destination = get_random_leo_pair(env)
         path = [current_leo]
         done = False
         episode_reward = 0
@@ -339,8 +419,10 @@ def train_mappo(env, agent, num_episodes=1000):
     for episode in range(num_episodes):
         # 重置环境
         env.reset()
-        current_leos = ["leo1", "leo2"]  # 起始节点
-        destinations = ["leo17", "leo18"]  # 目标节点
+        # 为所有智能体随机选择相同的起点和终点
+        current_leo, destination = get_random_leo_pair(env)
+        current_leos = [current_leo] * agent.n_agents
+        destinations = [destination] * agent.n_agents
         paths = [[leo] for leo in current_leos]
         done = [False] * agent.n_agents
         episode_rewards = [0] * agent.n_agents
