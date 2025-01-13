@@ -87,16 +87,18 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
     
     total_sent = len(path_stats['sent'])
     if total_sent > 0:
+        # 修改统计计算方式
         dropped_packets = len(path_stats['dropped'])
         lost_packets = len(path_stats['lost'])
         received_packets = len(path_stats['received'])
-        in_transit_packets = len(set().union(*[link.packets['in_queue'] 
-                                             for link in env.links_dict.values()]))
         
+        # 计算实际处理的包总数
+        processed_packets = received_packets + lost_packets
+        
+        # 计算各种比率
         drop_rate = (dropped_packets / total_sent) * 100
-        loss_rate = (lost_packets / total_sent) * 100
-        success_rate = (received_packets / total_sent) * 100
-        in_transit_rate = (in_transit_packets / total_sent) * 100
+        loss_rate = (lost_packets / processed_packets) * 100 if processed_packets > 0 else 0
+        success_rate = (received_packets / processed_packets) * 100 if processed_packets > 0 else 0
         
         print(f"Bandwidth: {metrics['bandwidths'][-1]:.2f} Mbps")
         print(f"Delay: {metrics['delays'][-1]:.2f} ms")
@@ -104,15 +106,14 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
         print(f"Packets received: {received_packets}")
         print(f"Packets lost in transmission: {lost_packets}")
         print(f"Packets dropped (queue full): {dropped_packets}")
-        print(f"Packets in transit: {in_transit_packets}")
         print(f"Drop rate: {drop_rate:.2f}%")
         print(f"Loss rate: {loss_rate:.2f}%")
-        print(f"Total loss rate: {(drop_rate + loss_rate):.2f}%")
         print(f"Success rate: {success_rate:.2f}%")
-        print(f"In-transit rate: {in_transit_rate:.2f}%")
         
-        if abs((drop_rate + loss_rate + success_rate + in_transit_rate) - 100) > 0.1:
-            print(f"Warning: Packet accounting mismatch! Total: {drop_rate + loss_rate + success_rate + in_transit_rate:.2f}%")
+        # 验证总计是否为100%
+        total = loss_rate + success_rate
+        if abs(total - 100) > 0.1:  # 允许0.1%的误差
+            print(f"Warning: Processed packets rate mismatch! Total: {total:.2f}%")
     
     print(f"Path length: {len(path)}")
     print(f"Reward: {metrics['rewards'][-1]:.2f}")
