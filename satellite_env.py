@@ -437,45 +437,61 @@ class SatelliteEnv:
 
     def _calculate_satellite_distance(self, sat1, sat2):
         """计算两颗卫星之间的距离(km)"""
-        # 从卫星名称中提取轨道和位置信息
-        orbit1, pos1 = self._get_orbit_position(sat1)
-        orbit2, pos2 = self._get_orbit_position(sat2)
+        # 检查是否都是LEO节点
+        if not (sat1.startswith('leo') and sat2.startswith('leo')):
+            # 如果涉及MEO节点，返回一个默认距离
+            return 1000  # 默认距离
         
-        # LEO卫星轨道参数
-        altitude = 1000  # LEO轨道高度(km)
-        earth_radius = 6371  # 地球半径(km)
-        orbit_radius = earth_radius + altitude
-        sats_per_orbit = SATS_PER_ORBIT_LEO
-        num_orbits = NUM_ORBITS_LEO
-        
-        # 计算卫星在轨道平面中的角度
-        angle_in_orbit1 = 2 * math.pi * pos1 / sats_per_orbit
-        angle_in_orbit2 = 2 * math.pi * pos2 / sats_per_orbit
-        
-        # 计算轨道平面间的角度
-        orbit_angle = 2 * math.pi * (orbit1 - orbit2) / num_orbits
-        
-        # 计算两颗卫星的笛卡尔坐标
-        x1 = orbit_radius * math.cos(angle_in_orbit1)
-        y1 = orbit_radius * math.sin(angle_in_orbit1) * math.cos(orbit_angle)
-        z1 = orbit_radius * math.sin(angle_in_orbit1) * math.sin(orbit_angle)
-        
-        x2 = orbit_radius * math.cos(angle_in_orbit2)
-        y2 = orbit_radius * math.sin(angle_in_orbit2)
-        z2 = 0  # 参考轨道平面
-        
-        # 计算直线距离
-        distance = math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
-        
-        return distance
+        try:
+            # 从卫星名称中提取轨道和位置信息
+            orbit1, pos1 = self._get_orbit_position(sat1)
+            orbit2, pos2 = self._get_orbit_position(sat2)
+            
+            # LEO卫星轨道参数
+            altitude = ORBIT_HEIGHT_LEO  # 使用配置中的轨道高度
+            earth_radius = EARTH_RADIUS  # 使用配置中的地球半径
+            orbit_radius = earth_radius + altitude
+            sats_per_orbit = SATS_PER_ORBIT_LEO
+            num_orbits = NUM_ORBITS_LEO
+            
+            # 计算卫星在轨道平面中的角度
+            angle_in_orbit1 = 2 * math.pi * pos1 / sats_per_orbit
+            angle_in_orbit2 = 2 * math.pi * pos2 / sats_per_orbit
+            
+            # 计算轨道平面间的角度
+            orbit_angle = 2 * math.pi * (orbit1 - orbit2) / num_orbits
+            
+            # 计算两颗卫星的笛卡尔坐标
+            x1 = orbit_radius * math.cos(angle_in_orbit1)
+            y1 = orbit_radius * math.sin(angle_in_orbit1) * math.cos(orbit_angle)
+            z1 = orbit_radius * math.sin(angle_in_orbit1) * math.sin(orbit_angle)
+            
+            x2 = orbit_radius * math.cos(angle_in_orbit2)
+            y2 = orbit_radius * math.sin(angle_in_orbit2)
+            z2 = 0  # 参考轨道平面
+            
+            # 计算直线距离
+            distance = math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+            
+            return distance
+        except Exception as e:
+            print(f"Error calculating distance between {sat1} and {sat2}: {str(e)}")
+            return 1000  # 发生错误时返回默认距离
 
     def _get_orbit_position(self, sat_name):
         """从卫星名称中提取轨道编号和位置编号"""
-        # 假设卫星名称格式为"leo{number}"
-        sat_num = int(sat_name.replace('leo', ''))
-        orbit_num = (sat_num - 1) // SATS_PER_ORBIT_LEO
-        position = (sat_num - 1) % SATS_PER_ORBIT_LEO
-        return orbit_num, position
+        # 检查是否是LEO节点
+        if not sat_name.startswith('leo'):
+            raise ValueError(f"Invalid satellite name: {sat_name}. Only LEO satellites are supported.")
+        
+        try:
+            # 提取LEO编号
+            sat_num = int(sat_name.replace('leo', ''))
+            orbit_num = (sat_num - 1) // SATS_PER_ORBIT_LEO
+            position = (sat_num - 1) % SATS_PER_ORBIT_LEO
+            return orbit_num, position
+        except ValueError as e:
+            raise ValueError(f"Error parsing satellite name {sat_name}: {str(e)}")
 
     def _calculate_shannon_capacity(self, bandwidth, snr):
         """计算香农容量
