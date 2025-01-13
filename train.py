@@ -70,9 +70,15 @@ def train_agent(algo_name, num_episodes):
             if key in stats:
                 stats[key].append(episode_stats[key])
         
-        # 输出训练进度
-        if (episode + 1) % 10 == 0:
-            print_progress(episode + 1, num_episodes, stats)
+        # 每个episode都输出训练进度
+        print(f"\nEpisode {episode + 1}/{num_episodes}")
+        print(f"奖励: {episode_stats['episode_reward']:.2f}")
+        print(f"路径长度: {episode_stats['path_length']}")
+        print(f"平均延迟: {episode_stats['delay']:.2f} ms")
+        print(f"平均带宽: {episode_stats['bandwidth']:.2f} MHz")
+        print(f"平均丢包率: {episode_stats['loss']:.2f}%")
+        print(f"是否成功: {'是' if episode_stats['success'] else '否'}")
+        print(f"路径: {' -> '.join(episode_stats['path'])}")
         
         # 保存检查点
         if (episode + 1) % 100 == 0:
