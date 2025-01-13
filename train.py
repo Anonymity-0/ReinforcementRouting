@@ -290,14 +290,14 @@ def train_dqn(env, agent, num_episodes=1000):
         
         while not done:
             # 获取状态和动作
-            state = env._get_state(current_leo)
+            state = env.get_state(current_leo)  # 使用环境的get_state方法
             available_actions = env.get_available_actions(current_leo)
             
             if not available_actions:
                 break
                 
             # 选择动作
-            action = agent.select_action(state, available_actions)
+            action = agent.choose_action(state, available_actions)
             
             # 执行动作
             next_leo = list(env.leo_nodes.keys())[action]
@@ -309,13 +309,16 @@ def train_dqn(env, agent, num_episodes=1000):
                 metrics_history[key].append(metrics.get(key, 0))
             
             # 存储经验并训练
-            agent.memorize(state, action, reward, next_state, done)
+            agent.store_transition(state, action, reward, next_state, done)
             agent.train()
             
             # 更新状态
             current_leo = next_leo
             path.append(current_leo)
             episode_reward += reward
+            
+            if done or current_leo == destination:
+                break
         
         # 更新统计信息
         stats['episode_rewards'].append(episode_reward)

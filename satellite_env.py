@@ -437,14 +437,11 @@ class SatelliteEnv:
         
         # 3. 丢包率计算
         if link.max_packets > 0:
-            # 队列丢包率计算
             queue_drop_rate = len(link.packets['dropped']) / max(1, (len(link.packets['in_queue']) + 
                                                                    len(link.packets['dropped'])))
         else:
             queue_drop_rate = 0
         
-        # 基础丢包率随链路利用率非线性增长
-        link_utilization = link.traffic / QUEUE_CAPACITY
         base_loss_rate = link.base_loss * (1 + link_utilization)
         weather_factor = link.weather_factor
         transmission_loss_rate = base_loss_rate * weather_factor
@@ -635,20 +632,33 @@ class SatelliteEnv:
 
     def _calculate_reward(self, next_leo, destination, metrics, path):
         """计算奖励"""
+        # 基础奖励
         if next_leo == destination:
-            return 20.0 + max(0, (MAX_PATH_LENGTH - len(path)) * 0.5)
+            path_efficiency = max(0, (MAX_PATH_LENGTH - len(path)) / MAX_PATH_LENGTH)
+            return 50.0 * path_efficiency  # 根据路径长度效率给予奖励
         
-        reward = -0.05  # 基础惩罚
+        # 计算到目标的距离变化
+        prev_distance = len(self._modified_dijkstra(path[-2], destination, set()) or [])
+        curr_distance = len(self._modified_dijkstra(next_leo, destination, set()) or [])
+        distance_reward = (prev_distance - curr_distance) * 2
         
-        # 同区域奖励
-        if self.leo_to_meo[next_leo] == self.leo_to_meo[destination]:
-            reward += 1.0
-            
-        # 环路惩罚
-        if next_leo in path:
-            reward -= 0.5
-            
-        return reward
+        # 链路质量奖励
+        link_quality_reward = 0
+        if metrics:
+            delay_penalty = -metrics['delay'] / 100
+            bandwidth_reward = metrics['bandwidth'] / 20
+            loss_penalty = -metrics['loss'] / 50
+            link_quality_reward = delay_penalty + bandwidth_reward + loss_penalty
+        
+        # 路径循环惩罚
+        loop_penalty = -10 if next_leo in path[:-1] else 0
+        
+        # 区域导向奖励
+        region_reward = 2.0 if self.leo_to_meo[next_leo] == self.leo_to_meo[destination] else 0
+        
+        total_reward = distance_reward + link_quality_reward + loop_penalty + region_reward
+        
+        return total_reward
 
     def get_state_size(self):
         """获取状态空间大小"""
@@ -667,55 +677,44 @@ class SatelliteEnv:
         return self.leo_to_meo 
 
     def get_state(self, current_leo):
-        """获取当前状态向量的公共接口"""
-        return self._get_state(current_leo)
-
-    def _get_state(self, current_leo):
-        """获取当前状态向量的内部实现"""
+        """获取当前状态向量"""
         state = []
         
-        # 1. 当前节点的队列状态
+        # 1. 当前节点信息
         current_traffic = 0
+        current_queue_length = 0
         for link in self.links:
             if link.node1.name == current_leo or link.node2.name == current_leo:
-                current_traffic += len(link.packets['in_queue'])
-        state.append(current_traffic / QUEUE_CAPACITY)
+                current_traffic += link.traffic
+                current_queue_length += len(link.packets['in_queue'])
         
-        # 2. 邻居节点的状态
-        neighbors = self.leo_neighbors[current_leo]
-        neighbor_states = []
-        for _ in range(8):  # 固定8个邻居位置
-            if neighbors:
-                neighbor = neighbors.pop()
-                neighbor_traffic = 0
-                for link in self.links:
-                    if link.node1.name == neighbor or link.node2.name == neighbor:
-                        neighbor_traffic += len(link.packets['in_queue'])
-                neighbor_states.append(neighbor_traffic / QUEUE_CAPACITY)
-            else:
-                neighbor_states.append(0)
-        state.extend(neighbor_states)
+        state.extend([
+            current_traffic / QUEUE_CAPACITY,  # 归一化流量
+            current_queue_length / (self.max_packets if hasattr(self, 'max_packets') else 1000)  # 归一化队列长度
+        ])
         
-        # 3. 链路性能指标
-        for neighbor in list(self.leo_neighbors[current_leo])[:8]:  # 最多考虑8个邻居
+        # 2. 邻居节点信息 (取前4个邻居)
+        neighbors = list(self.leo_neighbors[current_leo])[:4]
+        for neighbor in neighbors:
+            neighbor_traffic = 0
+            neighbor_queue = 0
             metrics = self._calculate_link_metrics(current_leo, neighbor)
+            
             if metrics:
                 state.extend([
                     metrics['delay'] / 100,  # 归一化延迟
                     metrics['bandwidth'] / 20,  # 归一化带宽
-                    metrics['loss'] / 100  # 归一化丢包率
+                    metrics['loss'] / 100,  # 归一化丢包率
+                    metrics['queue_utilization'] / 100  # 归一化队列利用率
                 ])
             else:
-                state.extend([0, 0, 0])
+                state.extend([0, 0, 0, 0])
+            
+        # 补充邻居信息到固定长度
+        missing_neighbors = 4 - len(neighbors)
+        state.extend([0] * (missing_neighbors * 4))
         
-        # 4. 添加一个额外的特征（例如：当前时间归一化）
-        state.append(self.simulation_time / (24 * 60 * 60))  # 假设一天为周期
-        
-        # 填充到固定长度
-        while len(state) < 18:  # 确保状态向量长度为18
-            state.append(0)
-        
-        return state[:18]  # 确保返回18维向量
+        return np.array(state, dtype=np.float32)  # 确保返回numpy数组
 
     def _find_k_shortest_paths_with_cross_region(self, source, destination, k, graph):
         """基于最小交叉区域的k最短路径算法"""

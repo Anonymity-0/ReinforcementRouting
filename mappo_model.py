@@ -68,52 +68,51 @@ class MAPPOAgent:
     def get_states(self, env, current_leos, destination_leos):
         """获取所有智能体的状态"""
         states = []
-        for current, dest in zip(current_leos, destination_leos):
-            state = env.get_state(current, dest)
+        for current_leo in current_leos:
+            state = env._get_state(current_leo)
             states.append(state)
         return torch.FloatTensor(states).to(self.device)
         
-    def choose_actions(self, states, available_actions_list, env, current_leos, destinations, paths):
+    def choose_actions(self, env, current_leos, destinations):
         """为所有智能体选择动作"""
+        # 获取所有智能体的状态
+        states = self.get_states(env, current_leos, destinations)
+        
         with torch.no_grad():
             action_probs_list, values = self.network(states)
-            
+        
         actions = []
         for i in range(self.n_agents):
-            available_actions = available_actions_list[i]
-            path = paths[i]
-            
-            # 移除导致环路的动作
-            non_loop_actions = [a for a in available_actions if self.leo_names[a] not in path]
-            if not non_loop_actions:
+            available_actions = env.get_available_actions(current_leos[i])
+            if not available_actions:
                 actions.append(None)
                 continue
-                
+            
             # 获取候选动作
             candidate_actions = env.get_candidate_actions(
                 current_leos[i], 
                 destinations[i],
-                non_loop_actions
+                available_actions
             )
             
             # 只考虑可用动作的概率分布
             action_probs = action_probs_list[i]
-            mask = torch.zeros_like(action_probs)
+            mask = torch.zeros_like(action_probs).to(self.device)
             mask[candidate_actions] = 1
             masked_probs = action_probs * mask
-            masked_probs = masked_probs / masked_probs.sum()
+            masked_probs = masked_probs / (masked_probs.sum() + 1e-10)
             
             dist = Categorical(masked_probs)
             action = dist.sample()
             
             # 存储经验
-            self.states[i].append(states[i])
+            self.states[i].append(states[i].unsqueeze(0))
             self.actions[i].append(action)
             self.values[i].append(values[i])
             self.log_probs[i].append(dist.log_prob(action))
             
             actions.append(action.item())
-            
+        
         return actions
         
     def update(self, next_values):

@@ -40,3 +40,4 @@ BATCH_SIZE = 32        # 批次大小
 TARGET_UPDATE = 10     # 目标网络更新频率
 LEARNING_RATE = 0.001  # 学习率
 MEMORY_SIZE = 2000     # 经验回放缓冲区大小 
+
