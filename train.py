@@ -268,7 +268,6 @@ def get_random_leo_pair(env):
     return start, end
 
 def train_dqn(env, agent, num_episodes=1000):
-    print("开始训练DQN智能体")
     """训练DQN智能体"""
     stats = {
         'episode_rewards': [],

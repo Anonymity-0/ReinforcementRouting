@@ -8,7 +8,7 @@ import time
 import argparse
 import random
 import numpy as np
-from train import train_ppo, train_mappo
+from train import train_ppo, train_mappo, train_dqn
 
 def set_random_seeds(seed=42):
     """设置随机种子以确保结果可重现"""
@@ -63,7 +63,8 @@ def main():
         elif args.algo == "dqn":
             print("\n开始训练 DQN 算法...")
             agent = DQNAgent(state_size, action_size, env.get_leo_names(), env.get_leo_to_meo_mapping())
-            # DQN的训练代码...
+            print("开始训练DQN智能体")
+            train_dqn(env, agent, num_episodes=args.episodes)
             
     except KeyboardInterrupt:
         print("\n训练被用户中断")
