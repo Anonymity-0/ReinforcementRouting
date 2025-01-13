@@ -106,12 +106,14 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
         print(f"Packets in transit: {in_transit_packets}")
         print(f"Drop rate: {drop_rate:.2f}%")
         print(f"Loss rate: {loss_rate:.2f}%")
-        print(f"Total loss rate: {(drop_rate + loss_rate):.2f}%")
         print(f"Success rate: {success_rate:.2f}%")
         print(f"In-transit rate: {in_transit_rate:.2f}%")
         
-        if abs((drop_rate + loss_rate + success_rate + in_transit_rate) - 100) > 0.1:
-            print(f"Warning: Packet accounting mismatch! Total: {drop_rate + loss_rate + success_rate + in_transit_rate:.2f}%")
+        total_accounted = received_packets + dropped_packets + lost_packets + in_transit_packets
+        accounting_rate = (total_accounted / total_sent) * 100
+        if abs(accounting_rate - 100) > 0.1:
+            print(f"Warning: Packet accounting mismatch! Total accounted packets: {total_accounted}, "
+                  f"Total sent: {total_sent}, Rate: {accounting_rate:.2f}%")
     
     print(f"Path length: {len(path)}")
     print(f"Reward: {metrics['rewards'][-1]:.2f}")
