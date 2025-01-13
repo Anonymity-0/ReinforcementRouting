@@ -368,11 +368,11 @@ class SatelliteEnv:
         # 计算实际卫星间距离
         distance = self._calculate_satellite_distance(source, destination)
         
-        # 1. 延迟计算
+        # 1. 延迟计算优化
         # 1.1 传播延迟 (光速传播)
         propagation_delay = distance / 300000 * 1000  # 转换为ms
         
-        # 1.2 排队和传输延迟计算
+        # 1.2 排队和传输延迟计算优化
         queue_size = len(link.packets['in_queue'])
         if queue_size > 0:
             # 计算单个数据包的传输时间
@@ -380,36 +380,42 @@ class SatelliteEnv:
             available_bandwidth = max(1, link.current_bandwidth) * 1e6  # bps
             transmission_time = packet_bits / available_bandwidth * 1000  # ms
             
-            # 计算队列比例
+            # 优化排队延迟计算
             queue_ratio = queue_size / link.max_packets
             
-            # 考虑并行传输能力
-            parallel_capacity = 10  # 可以同时传输的数据包数
+            # 考虑并行传输和处理能力
+            parallel_capacity = max(1, int(link.current_bandwidth))  # 基于带宽的并行处理能力
             effective_queue_size = max(1, queue_size / parallel_capacity)
             
-            # 计算排队延迟
-            if queue_ratio <= 0.5:
-                # 轻载状态：正常传输
-                queuing_delay = transmission_time * effective_queue_size
-            else:
-                # 重载状态：增加额外延迟
-                congestion_factor = 1 + (queue_ratio - 0.5)  # 最多增加50%
+            # 优化排队延迟计算
+            if queue_ratio <= 0.3:  # 轻载
+                queuing_delay = transmission_time * (effective_queue_size / 4)
+            elif queue_ratio <= 0.7:  # 中等负载
+                queuing_delay = transmission_time * (effective_queue_size / 2)
+            else:  # 重载
+                congestion_factor = 1 + (queue_ratio - 0.7)  # 最多增加30%
                 queuing_delay = transmission_time * effective_queue_size * congestion_factor
-                
-            # 传输延迟就是处理当前数据包所需的时间
-            transmission_delay = transmission_time
+            
+            # 优化传输延迟
+            transmission_delay = transmission_time * (1 + queue_ratio * 0.2)  # 最多增加20%
             
         else:
             queuing_delay = 0
             transmission_delay = 0
         
-        # 总延迟 = 传播延迟 + 排队延迟 + 传输延迟
-        total_delay = propagation_delay + queuing_delay + transmission_delay
+        # 总延迟优化
+        processing_overhead = 0.1  # 基础处理开销(ms)
+        total_delay = (propagation_delay + 
+                      queuing_delay * 0.6 +  # 降低排队延迟的权重
+                      transmission_delay + 
+                      processing_overhead)
+        
+       
         
         # 2. 带宽计算
         link_utilization = link.traffic / QUEUE_CAPACITY
         congestion_factor = math.tanh(link_utilization)
-        effective_bandwidth = link.base_bandwidth * (1 - congestion_factor * 0.4)  # 最多降低40%带宽
+        effective_bandwidth = link.base_bandwidth * (1 - congestion_factor * 0.4)
         
         # 3. 丢包率计算
         if link.max_packets > 0:
@@ -437,46 +443,37 @@ class SatelliteEnv:
 
     def _calculate_satellite_distance(self, sat1, sat2):
         """计算两颗卫星之间的距离(km)"""
-        # 检查是否都是LEO节点
-        if not (sat1.startswith('leo') and sat2.startswith('leo')):
-            # 如果涉及MEO节点，返回一个默认距离
-            return 1000  # 默认距离
+        # 从卫星名称中提取轨道和位置信息
+        orbit1, pos1 = self._get_orbit_position(sat1)
+        orbit2, pos2 = self._get_orbit_position(sat2)
         
-        try:
-            # 从卫星名称中提取轨道和位置信息
-            orbit1, pos1 = self._get_orbit_position(sat1)
-            orbit2, pos2 = self._get_orbit_position(sat2)
-            
-            # LEO卫星轨道参数
-            altitude = ORBIT_HEIGHT_LEO  # 使用配置中的轨道高度
-            earth_radius = EARTH_RADIUS  # 使用配置中的地球半径
-            orbit_radius = earth_radius + altitude
-            sats_per_orbit = SATS_PER_ORBIT_LEO
-            num_orbits = NUM_ORBITS_LEO
-            
-            # 计算卫星在轨道平面中的角度
-            angle_in_orbit1 = 2 * math.pi * pos1 / sats_per_orbit
-            angle_in_orbit2 = 2 * math.pi * pos2 / sats_per_orbit
-            
-            # 计算轨道平面间的角度
-            orbit_angle = 2 * math.pi * (orbit1 - orbit2) / num_orbits
-            
-            # 计算两颗卫星的笛卡尔坐标
-            x1 = orbit_radius * math.cos(angle_in_orbit1)
-            y1 = orbit_radius * math.sin(angle_in_orbit1) * math.cos(orbit_angle)
-            z1 = orbit_radius * math.sin(angle_in_orbit1) * math.sin(orbit_angle)
-            
-            x2 = orbit_radius * math.cos(angle_in_orbit2)
-            y2 = orbit_radius * math.sin(angle_in_orbit2)
-            z2 = 0  # 参考轨道平面
-            
-            # 计算直线距离
-            distance = math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
-            
-            return distance
-        except Exception as e:
-            print(f"Error calculating distance between {sat1} and {sat2}: {str(e)}")
-            return 1000  # 发生错误时返回默认距离
+        # LEO卫星轨道参数
+        altitude = 1000  # LEO轨道高度(km)
+        earth_radius = 6371  # 地球半径(km)
+        orbit_radius = earth_radius + altitude
+        sats_per_orbit = SATS_PER_ORBIT_LEO
+        num_orbits = NUM_ORBITS_LEO
+        
+        # 计算卫星在轨道平面中的角度
+        angle_in_orbit1 = 2 * math.pi * pos1 / sats_per_orbit
+        angle_in_orbit2 = 2 * math.pi * pos2 / sats_per_orbit
+        
+        # 计算轨道平面间的角度
+        orbit_angle = 2 * math.pi * (orbit1 - orbit2) / num_orbits
+        
+        # 计算两颗卫星的笛卡尔坐标
+        x1 = orbit_radius * math.cos(angle_in_orbit1)
+        y1 = orbit_radius * math.sin(angle_in_orbit1) * math.cos(orbit_angle)
+        z1 = orbit_radius * math.sin(angle_in_orbit1) * math.sin(orbit_angle)
+        
+        x2 = orbit_radius * math.cos(angle_in_orbit2)
+        y2 = orbit_radius * math.sin(angle_in_orbit2)
+        z2 = 0  # 参考轨道平面
+        
+        # 计算直线距离
+        distance = math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+        
+        return distance
 
     def _get_orbit_position(self, sat_name):
         """从卫星名称中提取轨道编号和位置编号"""
