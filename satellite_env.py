@@ -606,7 +606,7 @@ class SatelliteEnv:
             'path_stats': self.path_stats
         }
         
-        return self._get_state(next_leo), reward, done, info
+        return self.get_state(next_leo), reward, done, info
 
     def _generate_traffic_poisson(self, time_interval=1.0):
         """生成泊松分布的流量"""
