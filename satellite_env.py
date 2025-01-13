@@ -678,43 +678,58 @@ class SatelliteEnv:
 
     def get_state(self, current_leo):
         """获取当前状态向量"""
-        state = []
-        
-        # 1. 当前节点信息
-        current_traffic = 0
-        current_queue_length = 0
-        for link in self.links:
-            if link.node1.name == current_leo or link.node2.name == current_leo:
-                current_traffic += link.traffic
-                current_queue_length += len(link.packets['in_queue'])
-        
-        state.extend([
-            current_traffic / QUEUE_CAPACITY,  # 归一化流量
-            current_queue_length / (self.max_packets if hasattr(self, 'max_packets') else 1000)  # 归一化队列长度
-        ])
-        
-        # 2. 邻居节点信息 (取前4个邻居)
-        neighbors = list(self.leo_neighbors[current_leo])[:4]
-        for neighbor in neighbors:
-            neighbor_traffic = 0
-            neighbor_queue = 0
-            metrics = self._calculate_link_metrics(current_leo, neighbor)
+        try:
+            state = []
             
-            if metrics:
-                state.extend([
-                    metrics['delay'] / 100,  # 归一化延迟
-                    metrics['bandwidth'] / 20,  # 归一化带宽
-                    metrics['loss'] / 100,  # 归一化丢包率
-                    metrics['queue_utilization'] / 100  # 归一化队列利用率
-                ])
-            else:
-                state.extend([0, 0, 0, 0])
+            # 1. 当前节点信息
+            current_traffic = 0
+            current_queue_length = 0
+            max_queue_size = max(link.max_packets for link in self.links) if self.links else 1000
             
-        # 补充邻居信息到固定长度
-        missing_neighbors = 4 - len(neighbors)
-        state.extend([0] * (missing_neighbors * 4))
-        
-        return np.array(state, dtype=np.float32)  # 确保返回numpy数组
+            for link in self.links:
+                if link.node1.name == current_leo or link.node2.name == current_leo:
+                    current_traffic += link.traffic
+                    current_queue_length += len(link.packets['in_queue'])
+            
+            state.extend([
+                current_traffic / QUEUE_CAPACITY,  # 归一化流量
+                current_queue_length / max_queue_size  # 归一化队列长度
+            ])
+            
+            # 2. 邻居节点信息 (确保始终是4个邻居的信息)
+            neighbors = list(self.leo_neighbors.get(current_leo, set()))
+            
+            # 确保有足够的邻居信息
+            while len(neighbors) < 4:
+                neighbors.append(None)  # 使用None填充缺失的邻居
+            
+            # 只取前4个邻居
+            neighbors = neighbors[:4]
+            
+            for neighbor in neighbors:
+                if neighbor is not None:
+                    metrics = self._calculate_link_metrics(current_leo, neighbor)
+                    if metrics:
+                        state.extend([
+                            min(1.0, metrics['delay'] / 100),  # 归一化延迟
+                            min(1.0, metrics['bandwidth'] / 20),  # 归一化带宽
+                            min(1.0, metrics['loss'] / 100),  # 归一化丢包率
+                            min(1.0, metrics['queue_utilization'] / 100)  # 归一化队列利用率
+                        ])
+                    else:
+                        state.extend([0, 0, 0, 0])
+                else:
+                    state.extend([0, 0, 0, 0])  # 对于不存在的邻居，使用零值填充
+            
+            # 确保状态向量长度固定为18 (2 + 4*4 = 18)
+            assert len(state) == 18, f"State vector length is {len(state)}, expected 18"
+            
+            return np.array(state, dtype=np.float32)
+            
+        except Exception as e:
+            print(f"Error in get_state: {str(e)}")
+            # 返回一个全零的状态向量
+            return np.zeros(18, dtype=np.float32)
 
     def _find_k_shortest_paths_with_cross_region(self, source, destination, k, graph):
         """基于最小交叉区域的k最短路径算法"""
