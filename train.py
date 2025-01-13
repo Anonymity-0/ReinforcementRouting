@@ -195,7 +195,8 @@ def train():
                     break
                 
                 # 执行动作前，确保数据包数量在合理范围内
-                link = env.get_link(current_leo, info['next_leo'])
+                next_leo = list(env.leo_nodes.keys())[action]
+                link = env.links_dict.get((current_leo, next_leo)) or env.links_dict.get((next_leo, current_leo))
                 if link:
                     max_packets = link.max_packets
                     current_packets = len(link.packets['in_queue'])
