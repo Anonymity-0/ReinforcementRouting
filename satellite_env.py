@@ -413,38 +413,62 @@ class SatelliteEnv:
         """执行一步环境交互"""
         self.simulation_time += TIME_STEP
         
+        # 获取下一个LEO节点
+        next_leo = list(self.leo_nodes.keys())[action]
+        
+        # 获取链路
+        link = self.links_dict.get((current_leo, next_leo)) or self.links_dict.get((next_leo, current_leo))
+        if not link:
+            return None, -10, True, {'error': 'Invalid link'}
+        
         # 更新网络状态
         if self.simulation_time - self.last_network_update >= NETWORK_UPDATE_INTERVAL:
             self._update_network_state()
             self.last_network_update = self.simulation_time
         
-        # 获取下一个LEO节点
-        next_leo = list(self.leo_nodes.keys())[action]
-        metrics = self._calculate_link_metrics(current_leo, next_leo)
-        
-        if not metrics:
-            return None, -10, True, {'error': 'Invalid link'}
-        
         # 处理数据包传输
-        link = self.links_dict.get((current_leo, next_leo)) or self.links_dict.get((next_leo, current_leo))
         packets_to_send = self._generate_traffic_poisson()
-        
-        # 添加数据包到队列
         accepted_packets, dropped_packets, self.global_packet_id = link.add_packets(
             packets_to_send, self.global_packet_id, self.simulation_time
         )
         
-        # 更新统计信息
-        self.path_stats['sent'].update(accepted_packets)
-        self.path_stats['dropped'].update(dropped_packets)
-        
         # 处理队列
         processed_packets = link.process_queue(self.simulation_time)
         
+        # 计算链路指标
+        metrics = self._calculate_link_metrics(current_leo, next_leo)
+        if not metrics:
+            metrics = {
+                'delay': link.base_delay,
+                'bandwidth': link.base_bandwidth,
+                'loss': link.base_loss
+            }
+        
         # 计算丢包
         lost_packets = link.calculate_packet_loss(processed_packets, metrics['loss'])
+        
+        # 更新统计信息
+        self.path_stats['sent'].update(accepted_packets)
+        self.path_stats['dropped'].update(dropped_packets)
         self.path_stats['lost'].update(lost_packets)
         self.path_stats['received'].update(processed_packets - lost_packets)
+        
+        # 计算队列利用率
+        queue_utilization = len(link.packets['in_queue']) / link.max_packets if link.max_packets > 0 else 0
+        bandwidth_utilization = link.traffic / QUEUE_CAPACITY if QUEUE_CAPACITY > 0 else 0
+        
+        # 准备性能指标
+        link_stats = {
+            'delay': metrics['delay'],
+            'bandwidth': metrics['bandwidth'],
+            'loss': metrics['loss'] * 100,  # 转换为百分比
+            'queue_utilization': queue_utilization * 100,  # 转换为百分比
+            'bandwidth_utilization': bandwidth_utilization * 100,  # 转换为百分比
+            'packets_in_queue': len(link.packets['in_queue']),
+            'packets_processed': len(processed_packets),
+            'packets_dropped': len(dropped_packets),
+            'packets_lost': len(lost_packets)
+        }
         
         # 计算奖励
         reward = self._calculate_reward(next_leo, path[-1], metrics, path)
@@ -452,12 +476,10 @@ class SatelliteEnv:
         # 判断是否结束
         done = len(path) >= MAX_PATH_LENGTH - 1
         
-        # 准备信息字典
+        # 返回信息
         info = {
             'next_leo': next_leo,
-            'delay': metrics['delay'],
-            'bandwidth': metrics['bandwidth'],
-            'loss': metrics['loss'],
+            'link_stats': link_stats,
             'path_stats': self.path_stats
         }
         

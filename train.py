@@ -94,6 +94,19 @@ def train_dqn():
                     
                 step += 1
                 
+                # 每步都打印性能指标
+                if info and 'link_stats' in info:
+                    stats = info['link_stats']
+                    print(f"\n步骤 {step} 网络性能指标:")
+                    print(f"延迟: {stats['delay']:.2f} ms")
+                    print(f"带宽利用率: {stats['bandwidth_utilization']:.2f}%")
+                    print(f"丢包率: {stats['loss']:.2f}%")
+                    print(f"队列利用率: {stats['queue_utilization']:.2f}%")
+                    print(f"队列中的数据包: {stats['packets_in_queue']}")
+                    print(f"已处理数据包: {stats['packets_processed']}")
+                    print(f"丢弃的数据包: {stats['packets_dropped']}")
+                    print(f"丢失的数据包: {stats['packets_lost']}")
+                
                 # 收集当前链路的性能指标
                 if info and 'link_stats' in info:
                     stats = info['link_stats']
@@ -117,6 +130,14 @@ def train_dqn():
             episode_rewards.append(total_reward)
             avg_rewards.append(total_reward)
             avg_reward = np.mean(avg_rewards)
+            
+            # 每个episode结束时打印汇总信息
+            print(f"\nEpisode {episode} 汇总:")
+            if episode_metrics['delays']:
+                print(f"平均延迟: {np.mean(episode_metrics['delays']):.2f} ms")
+                print(f"平均带宽利用率: {np.mean(episode_metrics['bandwidth_utils']):.2f}%")
+                print(f"平均丢包率: {np.mean(episode_metrics['loss_rates']):.2f}%")
+                print(f"平均队列利用率: {np.mean(episode_metrics['queue_utils']):.2f}%")
             
             # 每10个回合打印一次详细信息
             if episode % 10 == 0:
