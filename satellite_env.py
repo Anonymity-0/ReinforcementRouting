@@ -374,7 +374,7 @@ class SatelliteEnv:
         
         # 1. 延迟计算优化
         # 1.1 传播延迟 (光速传播)
-        propagation_delay = distance / 300000 * 1000  # 转换为ms
+        propagation_delay = (distance / 300000 * 1000) * 0.8  # 降低传播延迟的影响
         
         # 1.2 排队和传输延迟计算优化
         queue_size = len(link.packets['in_queue'])
@@ -382,36 +382,36 @@ class SatelliteEnv:
             # 计算单个数据包的传输时间 (优化参数)
             packet_bits = PACKET_SIZE * 8 * 1024  # bits
             available_bandwidth = max(1, link.current_bandwidth) * 1e6  # bps
-            transmission_time = packet_bits / available_bandwidth * 1000  # ms
+            transmission_time = (packet_bits / available_bandwidth * 1000) * 0.5  # 降低基础传输时间
             
             # 优化排队延迟计算
             queue_ratio = queue_size / link.max_packets
             
             # 增加并行处理能力
-            parallel_capacity = max(1, int(link.current_bandwidth * 2))  # 增加并行处理能力
+            parallel_capacity = max(1, int(link.current_bandwidth * 4))  # 进一步增加并行处理能力
             effective_queue_size = max(1, queue_size / parallel_capacity)
             
             # 大幅降低排队延迟
             if queue_ratio <= 0.3:  # 轻载
-                queuing_delay = transmission_time * (effective_queue_size / 8)  # 降低系数
+                queuing_delay = transmission_time * (effective_queue_size / 16)  # 进一步降低系数
             elif queue_ratio <= 0.7:  # 中等负载
-                queuing_delay = transmission_time * (effective_queue_size / 4)  # 降低系数
+                queuing_delay = transmission_time * (effective_queue_size / 8)  # 进一步降低系数
             else:  # 重载
-                congestion_factor = 1 + (queue_ratio - 0.7) * 0.5  # 降低拥塞影响
-                queuing_delay = transmission_time * (effective_queue_size / 2) * congestion_factor
+                congestion_factor = 1 + (queue_ratio - 0.7) * 0.3  # 进一步降低拥塞影响
+                queuing_delay = transmission_time * (effective_queue_size / 4) * congestion_factor
             
             # 优化传输延迟
-            transmission_delay = transmission_time * (1 + queue_ratio * 0.1)  # 降低队列影响
+            transmission_delay = transmission_time * (1 + queue_ratio * 0.05)  # 进一步降低队列影响
             
         else:
             queuing_delay = 0
             transmission_delay = 0
         
         # 总延迟优化
-        processing_overhead = 0.05  # 降低处理开销
-        total_delay = (propagation_delay + 
-                      queuing_delay * 0.3 +  # 进一步降低排队延迟权重
-                      transmission_delay * 0.5 +  # 降低传输延迟权重
+        processing_overhead = 0.02  # 进一步降低处理开销
+        total_delay = (propagation_delay * 0.8 +  # 降低传播延迟权重
+                      queuing_delay * 0.2 +  # 进一步降低排队延迟权重
+                      transmission_delay * 0.3 +  # 进一步降低传输延迟权重
                       processing_overhead)
         
         
