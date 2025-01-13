@@ -133,31 +133,42 @@ class DQNAgent:
 
     def choose_action(self, state, available_actions, env, current_leo, destination, path):
         """选择动作"""
-        if len(available_actions) == 0:
+        if not available_actions:
             return None
-            
+        
         # 移除会导致环路的动作
-        non_loop_actions = [a for a in available_actions if self.leo_names[a] not in path]
+        non_loop_actions = [a for a in available_actions 
+                           if a < len(self.leo_names) and  # 确保动作索引有效
+                           self.leo_names[a] not in path]
         if not non_loop_actions:
             return None
+        
+        try:
+            # 获取候选动作
+            candidate_actions = env.get_candidate_actions(current_leo, destination, non_loop_actions)
             
-        # 获取候选动作
-        candidate_actions = env.get_candidate_actions(current_leo, destination, non_loop_actions)
-        
-        # 探索
-        if random.random() < self.epsilon:
-            if random.random() < 0.8 and candidate_actions:
-                return random.choice(candidate_actions)
-            return random.choice(non_loop_actions)
-        
-        # 利用
-        state = torch.FloatTensor(state).to(self.device)  # 确保state是Tensor
-        with torch.no_grad():
-            action_values = self.policy_net(state)
-        
-        # 只考虑非循环动作中的最大值
-        valid_actions = {action: action_values[action].item() for action in non_loop_actions}
-        return max(valid_actions.items(), key=lambda x: x[1])[0]
+            # 探索
+            if random.random() < self.epsilon:
+                if random.random() < 0.8 and candidate_actions:
+                    return random.choice(candidate_actions)
+                return random.choice(non_loop_actions)
+            
+            # 利用
+            state = torch.FloatTensor(state).to(self.device)
+            with torch.no_grad():
+                action_values = self.policy_net(state)
+            
+            # 只考虑非循环动作中的最大值
+            valid_actions = {action: action_values[action].item() 
+                            for action in non_loop_actions 
+                            if action < len(action_values)}
+            if not valid_actions:
+                return None
+            return max(valid_actions.items(), key=lambda x: x[1])[0]
+            
+        except Exception as e:
+            print(f"选择动作时出错: {str(e)}")
+            return None
 
     def memorize(self, state, action, reward, next_state, done):
         """存储经验"""

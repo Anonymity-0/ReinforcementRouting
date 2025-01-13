@@ -63,26 +63,35 @@ class PPOAgent:
         
         try:
             # 移除会导致环路的动作
-            non_loop_actions = [a for a in available_actions 
-                               if a < len(self.leo_names) and  # 确保动作索引有效
-                               self.leo_names[a] not in path]
+            non_loop_actions = []
+            for a in available_actions:
+                if a >= len(self.leo_names):
+                    continue
+                if self.leo_names[a] not in path:
+                    non_loop_actions.append(a)
+                
             if not non_loop_actions:
                 return None
             
             # 获取候选动作
             candidate_actions = env.get_candidate_actions(current_leo, destination, non_loop_actions)
+            if not candidate_actions:
+                return None
             
             # 将状态转换为tensor
-            state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            if isinstance(state, np.ndarray):
+                state = torch.FloatTensor(state)
+            state = state.unsqueeze(0).to(self.device)
             
             # 获取动作概率分布
             with torch.no_grad():
-                action_probs, _ = self.actor_critic(state)
+                action_probs, value = self.actor_critic(state)
                 action_probs = action_probs.squeeze()
             
             # 只考虑有效动作的概率
             valid_probs = torch.zeros_like(action_probs)
             valid_actions = candidate_actions if candidate_actions else non_loop_actions
+            
             for action in valid_actions:
                 if action < len(action_probs):
                     valid_probs[action] = action_probs[action]
@@ -95,12 +104,17 @@ class PPOAgent:
             valid_probs = valid_probs / valid_probs.sum()
             
             # 采样动作
-            action = torch.multinomial(valid_probs, 1).item()
-            
-            # 检查动作有效性
-            if action >= len(self.leo_names):
-                print(f"无效的动作索引: {action}, 最大允许值: {len(self.leo_names)-1}")
+            try:
+                action = torch.multinomial(valid_probs, 1).item()
+            except RuntimeError:
+                print(f"采样动作失败，valid_probs: {valid_probs}")
                 return None
+            
+            # 存储经验
+            self.states.append(state)
+            self.actions.append(torch.tensor(action).to(self.device))
+            self.values.append(value)
+            self.log_probs.append(torch.log(valid_probs[action] + 1e-10))
             
             return action
             
