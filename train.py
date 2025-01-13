@@ -82,42 +82,45 @@ def save_training_history(metrics, save_dir='training_history'):
 
 def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env):
     """打印每个episode的统计信息"""
-    print(f"\nEpisode {episode + 1}/{episodes}")
-    print(f"Path: {' -> '.join(path)}")
+    print(f"\n训练轮次 {episode + 1}/{episodes}")
+    print(f"路径: {' -> '.join(path)}")
     
     total_sent = len(path_stats['sent'])
     if total_sent > 0:
-        # 修改统计计算方式
+        # 计算各种包的数量
         dropped_packets = len(path_stats['dropped'])
         lost_packets = len(path_stats['lost'])
         received_packets = len(path_stats['received'])
         
-        # 计算实际处理的包总数
-        processed_packets = received_packets + lost_packets
+        # 计算在途包数（仍在队列中的包）
+        in_transit_packets = total_sent - (dropped_packets + lost_packets + received_packets)
         
         # 计算各种比率
         drop_rate = (dropped_packets / total_sent) * 100
-        loss_rate = (lost_packets / processed_packets) * 100 if processed_packets > 0 else 0
-        success_rate = (received_packets / processed_packets) * 100 if processed_packets > 0 else 0
+        loss_rate = (lost_packets / total_sent) * 100
+        success_rate = (received_packets / total_sent) * 100
+        in_transit_rate = (in_transit_packets / total_sent) * 100
         
-        print(f"Bandwidth: {metrics['bandwidths'][-1]:.2f} Mbps")
-        print(f"Delay: {metrics['delays'][-1]:.2f} ms")
-        print(f"Packets sent: {total_sent}")
-        print(f"Packets received: {received_packets}")
-        print(f"Packets lost in transmission: {lost_packets}")
-        print(f"Packets dropped (queue full): {dropped_packets}")
-        print(f"Drop rate: {drop_rate:.2f}%")
-        print(f"Loss rate: {loss_rate:.2f}%")
-        print(f"Success rate: {success_rate:.2f}%")
+        print(f"带宽: {metrics['bandwidths'][-1]:.2f} Mbps")
+        print(f"延迟: {metrics['delays'][-1]:.2f} ms")
+        print(f"发送包数: {total_sent}")
+        print(f"接收包数: {received_packets}")
+        print(f"传输丢失包数: {lost_packets}")
+        print(f"队列丢弃包数: {dropped_packets}")
+        print(f"在途包数: {in_transit_packets}")
+        print(f"队列丢弃率: {drop_rate:.2f}%")
+        print(f"传输丢失率: {loss_rate:.2f}%")
+        print(f"传输成功率: {success_rate:.2f}%")
+        print(f"在途率: {in_transit_rate:.2f}%")
         
-        # 验证总计是否为100%
-        total = loss_rate + success_rate
-        if abs(total - 100) > 0.1:  # 允许0.1%的误差
-            print(f"Warning: Processed packets rate mismatch! Total: {total:.2f}%")
+        # 验证统计的完整性
+        total_percentage = drop_rate + loss_rate + success_rate + in_transit_rate
+        if abs(total_percentage - 100) > 0.1:  # 允许0.1%的误差
+            print(f"警告：数据包统计不匹配！总计: {total_percentage:.2f}%")
     
-    print(f"Path length: {len(path)}")
-    print(f"Reward: {metrics['rewards'][-1]:.2f}")
-    print(f"Exploration rate: {agent.epsilon:.3f}")
+    print(f"路径长度: {len(path)}")
+    print(f"奖励值: {metrics['rewards'][-1]:.2f}")
+    print(f"探索率: {agent.epsilon:.3f}")
     print("-" * 50)
 
 def train():
