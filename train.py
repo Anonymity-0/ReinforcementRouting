@@ -370,17 +370,17 @@ def train_ppo(env, agent, num_episodes=1000):
     }
     
     for episode in range(num_episodes):
-        # 重置环境
-        env.reset()
-        # 随机选择起点和终点
-        current_leo, destination = get_random_leo_pair(env)
-        path = [current_leo]
-        done = False
-        episode_reward = 0
-        metrics_history = defaultdict(list)
-        
-        while not done:
-            try:
+        try:
+            # 重置环境
+            env.reset()
+            # 随机选择起点和终点
+            current_leo, destination = get_random_leo_pair(env)
+            path = [current_leo]
+            done = False
+            episode_reward = 0
+            metrics_history = defaultdict(list)
+            
+            while not done:
                 # 获取状态和动作
                 state = env.get_state(current_leo)
                 available_actions = env.get_available_actions(current_leo)
@@ -389,31 +389,14 @@ def train_ppo(env, agent, num_episodes=1000):
                     print(f"没有可用动作，当前节点: {current_leo}")
                     break
                 
-                # 修改：确保动作在有效范围内
+                # 选择动作
                 action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
                 if action is None:
                     print(f"无法选择有效动作，当前节点: {current_leo}")
                     break
                 
-                # 添加：验证动作的有效性
-                leo_names = list(env.leo_nodes.keys())
-                if not (0 <= action < len(available_actions)):
-                    print(f"动作 {action} 超出可用动作范围 [0, {len(available_actions)-1}]")
-                    break
-                
-                # 修改：使用available_actions来获取下一个节点
-                next_leo = available_actions[action]
-                
-                # 执行动作前确保action在有效范围内
-                if next_leo not in env.leo_nodes:
-                    print(f"无效的目标节点: {next_leo}")
-                    break
-                
-                # 获取实际的动作索引
-                action_idx = list(env.leo_nodes.keys()).index(next_leo)
-                
                 # 执行动作
-                next_state, reward, done, info = env.step(current_leo, action_idx, path)
+                next_state, reward, done, info = env.step(current_leo, action, path)
                 
                 # 记录性能指标
                 metrics = info.get('link_stats', {})
@@ -426,29 +409,24 @@ def train_ppo(env, agent, num_episodes=1000):
                 agent.masks.append(1 - done)
                 
                 # 更新状态
-                current_leo = next_leo
+                current_leo = list(env.leo_nodes.keys())[action]
                 path.append(current_leo)
                 episode_reward += reward
                 
                 if done or current_leo == destination:
-                    # 获取最终状态值
-                    try:
-                        final_state = env.get_state(current_leo)
-                        final_state = torch.FloatTensor(final_state).unsqueeze(0).to(agent.device)
-                        with torch.no_grad():
-                            _, final_value = agent.actor_critic(final_state)
-                        # 更新策略
-                        agent.update(final_value)
-                    except Exception as e:
-                        print(f"策略更新出错: {str(e)}")
+                    # 获取最终状态值并更新策略
+                    final_state = env.get_state(current_leo)
+                    final_state = torch.FloatTensor(final_state).unsqueeze(0).to(agent.device)
+                    with torch.no_grad():
+                        _, final_value = agent.actor_critic(final_state)
+                    agent.update(final_value)
                     break
                     
-            except Exception as e:
-                print(f"训练步骤出错: {str(e)}")
-                print(f"当前状态: current_leo={current_leo}, action={action if 'action' in locals() else 'None'}")
-                break
-        
-        # 更新统计信息
+        except Exception as e:
+            print(f"Episode {episode + 1} 训练出错: {str(e)}")
+            continue
+            
+        # 更新统计信息和打印训练进度
         stats['episode_rewards'].append(episode_reward)
         stats['path_lengths'].append(len(path))
         for key in ['delay', 'bandwidth', 'loss']:
@@ -456,7 +434,6 @@ def train_ppo(env, agent, num_episodes=1000):
                 stats[f'{key}s'].append(np.mean(metrics_history[key]))
         stats['success_rate'].append(1 if current_leo == destination else 0)
         
-        # 打印训练信息
         print(f"\nEpisode {episode + 1}/{num_episodes}")
         print(f"奖励: {episode_reward:.2f}")
         print(f"路径长度: {len(path)}")
