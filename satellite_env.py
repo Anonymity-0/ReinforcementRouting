@@ -1,35 +1,10 @@
-import numpy as np
-import random
+from config import *
 from collections import defaultdict, deque
 from datetime import datetime
 import math
 import time
-
-
-# 全局常量
-ORBIT_HEIGHT_LEO = 1500
-ORBIT_HEIGHT_MEO = 8000
-NUM_ORBITS_LEO = 16
-SATS_PER_ORBIT_LEO = 16
-NUM_ORBITS_MEO = 2
-SATS_PER_ORBIT_MEO = 8
-INCLINATION = 55
-EARTH_RADIUS = 6371
-ALPHA = 0.1
-GAMMA = 0.9
-INITIAL_EPSILON = 0.9
-MIN_EPSILON = 0.1
-DECAY_RATE = 0.0001
-MAX_PATH_LENGTH = 15
-QUEUE_CAPACITY = 150  # MB
-PACKET_SIZE = 25  # KB
-DATA_GENERATION_RATE = 1.0  # Gbps
-BANDWIDTH = 20  # MHz
-SNR_MIN = 10  # dB
-SNR_MAX = 30  # dB
-UPDATE_INTERVAL = 100  # ms
-TIME_STEP = 20  # ms
-NETWORK_UPDATE_INTERVAL = 500  # ms
+import random
+import numpy as np
 
 class Node:
     def __init__(self, name):
