@@ -17,21 +17,16 @@ class Link:
         self.node1 = node1
         self.node2 = node2
         self.base_delay = delay
-        self.base_bandwidth = bandwidth  # MHz
+        self.base_bandwidth = bandwidth
         self.base_loss = loss
-        self.traffic = 0  # 当前流量 (Mbps)
+        self.traffic = 0
         self.current_delay = delay
         self.current_bandwidth = bandwidth
         self.current_loss = loss
         self.weather_factor = 1.0
         self.last_process_time = 0
         self.last_update_time = 0
-        
-        # 队列容量 (以数据包数量计)
         self.max_packets = int((QUEUE_CAPACITY * 1024 * 1024) / (PACKET_SIZE * 1024))
-        
-        # 最大带宽 (Mbps)
-        self.max_bandwidth = bandwidth * 1  # 假设1MHz带宽可以传输1Mbps数据
         
         self.packets = {
             'in_queue': set(),
@@ -40,39 +35,25 @@ class Link:
             'lost': set()
         }
         self.packet_timestamps = {}
-        self.base_loss_rate = loss
-        self.current_loss_rate = loss
 
     def add_packets(self, num_packets, start_id, current_time):
         """添加数据包到队列"""
+        
         accepted_packets = set()
         dropped_packets = set()
-        
-        # 计算当前队列利用率
-        queue_utilization = len(self.packets['in_queue']) / self.max_packets if self.max_packets > 0 else 1
-        
-        # 计算当前带宽利用率 (Mbps)
-        current_traffic = (len(self.packets['in_queue']) * PACKET_SIZE * 8) / 1024  # Mbps
-        bandwidth_utilization = current_traffic / self.max_bandwidth if self.max_bandwidth > 0 else 1
-        
-        # 使用较大的利用率作为拥塞指标
-        congestion = max(queue_utilization, bandwidth_utilization)
         
         for i in range(num_packets):
             packet_id = start_id + i
             if len(self.packets['in_queue']) < self.max_packets:
-                # 根据拥塞程度决定是否丢弃
-                if random.random() < (self.base_loss_rate * congestion):
-                    dropped_packets.add(packet_id)
-                else:
-                    self.packets['in_queue'].add(packet_id)
-                    self.packet_timestamps[packet_id] = current_time
-                    accepted_packets.add(packet_id)
+                self.packets['in_queue'].add(packet_id)
+                self.packet_timestamps[packet_id] = current_time
+                accepted_packets.add(packet_id)
             else:
+                self.packets['dropped'].add(packet_id)
                 dropped_packets.add(packet_id)
-        
-        # 更新当前流量 (Mbps)
-        self.traffic = (len(self.packets['in_queue']) * PACKET_SIZE * 8) / 1024
+       
+        self.traffic = len(self.packets['in_queue']) * PACKET_SIZE / 1024
+        self.congestion_level = len(self.packets['in_queue']) / self.max_packets
         
         return accepted_packets, dropped_packets, start_id + num_packets
 
@@ -120,19 +101,11 @@ class Link:
         return processed_packets
 
     def calculate_packet_loss(self, packets_to_check, current_loss_rate):
-        """计算数据包丢失"""
         lost_packets = set()
-        
-        # 根据队列利用率调整丢包率
-        queue_utilization = len(self.packets['in_queue']) / self.max_packets if self.max_packets > 0 else 0
-        adjusted_loss_rate = self.base_loss_rate * (1 + queue_utilization * 2)  # 队列利用率越高，丢包率越高
-        
-        # 对每个数据包计算是否丢失
         for packet_id in packets_to_check:
-            if random.random() < adjusted_loss_rate:
+            if random.random() < (current_loss_rate / 100.0):
                 lost_packets.add(packet_id)
                 self.packets['lost'].add(packet_id)
-                
         return lost_packets
 
     def get_statistics(self):
@@ -358,78 +331,41 @@ class SatelliteEnv:
         """更新网络状态"""
         for link in self.links_dict.values():
             self._calculate_link_metrics(link.node1.name, link.node2.name)
-    def _calculate_link_metrics(self, node1, node2):
+    def _calculate_link_metrics(self, source, destination):
         """计算链路性能指标"""
-        link = self.links_dict.get((node1, node2)) or self.links_dict.get((node2, node1))
+        link = self.links_dict.get((source, destination)) or \
+               self.links_dict.get((destination, source))
+        
         if not link:
             return None
-
-        if self.simulation_time - link.last_update_time >= UPDATE_INTERVAL:
-            # 计算链路利用率
-            utilization = min(1.0, link.traffic / QUEUE_CAPACITY if QUEUE_CAPACITY > 0 else 1.0)
-
-            # 调整实际带宽
-            congestion_factor = 1 - (utilization ** 2) * 0.5
-            adjusted_bandwidth = link.current_bandwidth * 1e6 * congestion_factor
-
-            # 计算延迟
-            queue_size_bits = len(link.packets['in_queue']) * PACKET_SIZE * 8 * 1024
-
-            # 计算排队延迟
-            queue_delay = (queue_size_bits / adjusted_bandwidth) * 1000 if adjusted_bandwidth > 0 else float('inf')
-
-            # 计算处理延迟
-            processing_delay = 0.1 * len(link.packets['in_queue'])
-
-            # 传播延迟
-            propagation_delay = link.base_delay + queue_delay * 0.05
-
-            # 设备负载影响
-            device_load = len(link.packets['in_queue']) / link.max_packets
-            processing_delay *= (1 + device_load)
-
-            # 总延迟
-            total_delay = propagation_delay + queue_delay + processing_delay
-
-            # 添加随机抖动
-            jitter = np.random.normal(0, total_delay * 0.05)
-            total_delay = max(link.base_delay, total_delay + jitter)
-
-            # 处理队列中的数据包
-            processed_packets = link.process_queue(self.simulation_time)
-            
-            # 计算丢包
-            base_loss_rate = link.base_loss * (1 + device_load)
-            lost_packets = link.calculate_packet_loss(processed_packets, base_loss_rate * 100)
-            
-            # 计算实际丢包率
-            total_processed = len(processed_packets)
-            total_lost = len(lost_packets)
-            actual_loss_rate = (total_lost / total_processed * 100) if total_processed > 0 else 0
-            
-            # 根据队列利用率调整丢包率
-            utilization_factor = len(link.packets['in_queue']) / link.max_packets
-            adjusted_loss_rate = actual_loss_rate * (1 + utilization_factor)
-            
-
-            # 更新链路状态
-            link.current_delay = total_delay
-            link.current_loss = adjusted_loss_rate / 100  # 转换为小数
-            link.last_update_time = self.simulation_time
-            
-            return {
-                'delay': total_delay,
-                'bandwidth': link.current_bandwidth,
-                'loss': adjusted_loss_rate,
-                'last_update': link.last_update_time
-            }
-
-        return {
-            'delay': link.current_delay,
-            'bandwidth': link.current_bandwidth,
-            'loss': link.current_loss * 100,  # 转换为百分比
-            'last_update': link.last_update_time
+        
+        # 确保基础延迟大于0
+        base_delay = max(0.1, link.base_delay)  # 设置最小延迟为0.1ms
+        
+        metrics = {
+            'delay': base_delay,  # 使用基础延迟作为初始值
+            'bandwidth': link.base_bandwidth,
+            'loss': 0.0
         }
+        
+        total_packets = len(link.packets['in_queue']) + \
+                       len(link.packets['processed']) + \
+                       len(link.packets['dropped']) + \
+                       len(link.packets['lost'])
+                       
+        if total_packets > 0:
+            # 计算总的丢包率（包括队列丢弃和传输丢失）
+            total_lost = len(link.packets['dropped']) + len(link.packets['lost'])
+            metrics['loss'] = (total_lost / total_packets) * 100
+            
+            # 更新延迟：确保延迟始终大于0
+            if len(link.packets['processed']) > 0:
+                timestamps = [t for t in link.packet_timestamps.values() if t > 0]
+                if timestamps:
+                    actual_delay = sum(timestamps) / len(timestamps)
+                    metrics['delay'] = max(base_delay, actual_delay)  # 使用基础延迟和实际延迟的较大值
+        
+        return metrics
     def _calculate_shannon_capacity(self, bandwidth, snr):
         """计算香农容量"""
         snr_linear = 10 ** (snr / 10)
@@ -480,18 +416,14 @@ class SatelliteEnv:
         self.path_stats['lost'].update(lost_packets)
         self.path_stats['received'].update(processed_packets - lost_packets)
         
-        # 计算队列和带宽利用率
+        # 计算队列利用率
         queue_utilization = len(link.packets['in_queue']) / link.max_packets if link.max_packets > 0 else 0
-        current_traffic = (len(link.packets['in_queue']) * PACKET_SIZE * 8) / 1024  # Mbps
-        bandwidth_utilization = current_traffic / link.max_bandwidth if link.max_bandwidth > 0 else 0
+        bandwidth_utilization = link.traffic / QUEUE_CAPACITY if QUEUE_CAPACITY > 0 else 0
         
-        # 计算丢包率
-        total_packets = packets_to_send
-        dropped_count = len(dropped_packets)
-        lost_count = len(lost_packets)
-        
+        # 计算丢包率 (修改这部分)
+        total_packets = len(accepted_packets) + len(dropped_packets)
         if total_packets > 0:
-            drop_rate = ((dropped_count + lost_count) / total_packets) * 100
+            drop_rate = (len(dropped_packets) + len(lost_packets)) / total_packets * 100
         else:
             drop_rate = 0.0
         
@@ -499,14 +431,13 @@ class SatelliteEnv:
         link_stats = {
             'delay': metrics['delay'],
             'bandwidth': metrics['bandwidth'],
-            'loss': drop_rate,
-            'queue_utilization': queue_utilization * 100,  # 转换为百分比
-            'bandwidth_utilization': bandwidth_utilization * 100,  # 转换为百分比
+            'loss': drop_rate,  # 使用新计算的丢包率
+            'queue_utilization': queue_utilization * 100,
+            'bandwidth_utilization': bandwidth_utilization * 100,
             'packets_in_queue': len(link.packets['in_queue']),
             'packets_processed': len(processed_packets),
-            'packets_dropped': dropped_count,
-            'packets_lost': lost_count,
-            'total_packets': total_packets
+            'packets_dropped': len(dropped_packets),
+            'packets_lost': len(lost_packets)
         }
         
         # 计算奖励
