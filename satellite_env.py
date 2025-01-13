@@ -557,24 +557,40 @@ class SatelliteEnv:
             metrics = {
                 'delay': link.base_delay,
                 'bandwidth': link.base_bandwidth,
-                'loss': link.base_loss,
-                'utilization': 0,
-                'queue_size': len(link.packets['in_queue']),
-                'max_queue': link.max_packets
+                'loss': link.base_loss
             }
+        
+        # 计算丢包
+        lost_packets = link.calculate_packet_loss(processed_packets, metrics['loss'])
+        
+        # 更新统计信息
+        self.path_stats['sent'].update(accepted_packets)
+        self.path_stats['dropped'].update(dropped_packets)
+        self.path_stats['lost'].update(lost_packets)
+        self.path_stats['received'].update(processed_packets - lost_packets)
         
         # 计算队列利用率
         queue_utilization = len(link.packets['in_queue']) / link.max_packets if link.max_packets > 0 else 0
+        bandwidth_utilization = link.traffic / QUEUE_CAPACITY if QUEUE_CAPACITY > 0 else 0
         
-        # 更新链路统计信息
+        # 计算丢包率 (修改这部分)
+        total_packets = len(accepted_packets) + len(dropped_packets)
+        if total_packets > 0:
+            drop_rate = (len(dropped_packets) + len(lost_packets)) / total_packets * 100
+        else:
+            drop_rate = 0.0
+        
+        # 准备性能指标
         link_stats = {
             'delay': metrics['delay'],
             'bandwidth': metrics['bandwidth'],
-            'loss': metrics['loss'],
-            'utilization': metrics['utilization'],
-            'queue_utilization': queue_utilization * 100,  # 转换为百分比
-            'queue_size': metrics['queue_size'],
-            'max_queue': metrics['max_queue']
+            'loss': drop_rate,  # 使用新计算的丢包率
+            'queue_utilization': queue_utilization * 100,
+            'bandwidth_utilization': bandwidth_utilization * 100,
+            'packets_in_queue': len(link.packets['in_queue']),
+            'packets_processed': len(processed_packets),
+            'packets_dropped': len(dropped_packets),
+            'packets_lost': len(lost_packets)
         }
         
         # 计算奖励
@@ -590,7 +606,7 @@ class SatelliteEnv:
             'path_stats': self.path_stats
         }
         
-        return self.get_state(next_leo), reward, done, info
+        return self._get_state(next_leo), reward, done, info
 
     def _generate_traffic_poisson(self, time_interval=1.0):
         """生成泊松分布的流量"""
@@ -616,33 +632,20 @@ class SatelliteEnv:
 
     def _calculate_reward(self, next_leo, destination, metrics, path):
         """计算奖励"""
-        # 基础奖励
         if next_leo == destination:
-            path_efficiency = max(0, (MAX_PATH_LENGTH - len(path)) / MAX_PATH_LENGTH)
-            return 50.0 * path_efficiency  # 根据路径长度效率给予奖励
+            return 20.0 + max(0, (MAX_PATH_LENGTH - len(path)) * 0.5)
         
-        # 计算到目标的距离变化
-        prev_distance = len(self._modified_dijkstra(path[-2], destination, set()) or [])
-        curr_distance = len(self._modified_dijkstra(next_leo, destination, set()) or [])
-        distance_reward = (prev_distance - curr_distance) * 2
+        reward = -0.05  # 基础惩罚
         
-        # 链路质量奖励
-        link_quality_reward = 0
-        if metrics:
-            delay_penalty = -metrics['delay'] / 100
-            bandwidth_reward = metrics['bandwidth'] / 20
-            loss_penalty = -metrics['loss'] / 50
-            link_quality_reward = delay_penalty + bandwidth_reward + loss_penalty
-        
-        # 路径循环惩罚
-        loop_penalty = -10 if next_leo in path[:-1] else 0
-        
-        # 区域导向奖励
-        region_reward = 2.0 if self.leo_to_meo[next_leo] == self.leo_to_meo[destination] else 0
-        
-        total_reward = distance_reward + link_quality_reward + loop_penalty + region_reward
-        
-        return total_reward
+        # 同区域奖励
+        if self.leo_to_meo[next_leo] == self.leo_to_meo[destination]:
+            reward += 1.0
+            
+        # 环路惩罚
+        if next_leo in path:
+            reward -= 0.5
+            
+        return reward
 
     def get_state_size(self):
         """获取状态空间大小"""
