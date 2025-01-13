@@ -166,6 +166,16 @@ def train():
             # 获取初始状态
             current_state = agent.get_state(env, current_leo, destination)
             
+            # 重置统计数据
+            path_stats = {
+                'sent': set(),          # 所有生成的包
+                'in_queue': set(),      # 在队列中的包
+                'processed': set(),     # 已处理的包
+                'dropped': set(),       # 因队列满被丢弃的包
+                'lost': set(),          # 传输中丢失的包
+                'received': set()       # 成功接收的包
+            }
+            
             while len(path) < MAX_PATH_LENGTH:
                 # 获取可用动作
                 available_actions = env.get_available_actions(current_leo)
