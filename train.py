@@ -61,6 +61,14 @@ def train_dqn():
             current_leo = source
             step = 0
             
+            # 初始化episode级别的统计信息
+            episode_packets = {
+                'sent': set(),
+                'received': set(),
+                'dropped': set(),
+                'lost': set()
+            }
+            
             while step < MAX_PATH_LENGTH:
                 # 获取当前状态
                 state = agent.get_state(env, current_leo, destination)
@@ -89,11 +97,6 @@ def train_dqn():
                 current_leo = next_leo
                 path.append(current_leo)
                 
-                if done or current_leo == destination:
-                    break
-                    
-                step += 1
-                
                 # 收集当前链路的性能指标
                 if info and 'link_stats' in info:
                     stats = info['link_stats']
@@ -101,6 +104,19 @@ def train_dqn():
                     episode_metrics['bandwidth_utils'].append(stats['bandwidth_utilization'])
                     episode_metrics['loss_rates'].append(stats['loss'])
                     episode_metrics['queue_utils'].append(stats['queue_utilization'])
+                
+                # 更新当前episode的数据包统计
+                if 'packets' in info:
+                    episode_packets['sent'].update(info['packets']['sent'])
+                    episode_packets['received'].update(info['packets']['received'])
+                    episode_packets['dropped'].update(info['packets']['dropped'])
+                    episode_packets['lost'].update(info['packets']['lost'])
+                
+                # 提前检查是否完成或到达目标
+                if done or current_leo == destination:
+                    break
+                    
+                step += 1
                 
             # 计算并记录本回合的平均指标
             if episode_metrics['delays']:
@@ -118,12 +134,12 @@ def train_dqn():
             avg_rewards.append(total_reward)
             avg_reward = np.mean(avg_rewards)
             
-            # 在episode结束时收集统计信息
+            # 在episode结束时使用当前episode的统计信息
             path_stats = {
-                'sent': env.get_sent_packets(),
-                'received': env.get_received_packets(),
-                'dropped': env.get_dropped_packets(),
-                'lost': env.get_lost_packets()
+                'sent': episode_packets['sent'],
+                'received': episode_packets['received'],
+                'dropped': episode_packets['dropped'],
+                'lost': episode_packets['lost']
             }
             
             current_metrics = {
@@ -137,7 +153,7 @@ def train_dqn():
                 episode=episode,
                 episodes=NUM_EPISODES,
                 path=path,
-                path_stats=path_stats,
+                path_stats=path_stats,  # 使用当前episode的统计信息
                 metrics=current_metrics,
                 agent=agent,
                 env=env
