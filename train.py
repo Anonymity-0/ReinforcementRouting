@@ -259,6 +259,105 @@ def plot_training_curves(algo_name, stats):
     plt.savefig(f'results/{algo_name}_training_curves.png')
     plt.close()
 
+def train_ppo(env, agent, num_episodes=1000):
+    """训练PPO智能体"""
+    for episode in range(num_episodes):
+        # 重置环境
+        env.reset()
+        current_leo = "leo1"  # 起始节点
+        destination = "leo17"  # 目标节点
+        path = [current_leo]
+        done = False
+        episode_reward = 0
+        
+        while not done:
+            # 选择动作
+            action = agent.choose_action(env, current_leo, destination)
+            if action is None:
+                break
+                
+            # 执行动作
+            next_leo = list(env.leo_nodes.keys())[action]
+            next_state, reward, done, info = env.step(current_leo, action, path)
+            
+            # 存储奖励和mask
+            agent.rewards.append(reward)
+            agent.masks.append(1 - done)
+            
+            # 更新状态
+            current_leo = next_leo
+            path.append(current_leo)
+            episode_reward += reward
+            
+            if done:
+                # 获取最终状态值
+                final_state = env._get_state(current_leo)  # 使用_get_state而不是get_state
+                final_state = torch.FloatTensor(final_state).unsqueeze(0).to(agent.device)
+                with torch.no_grad():
+                    _, final_value = agent.actor_critic(final_state)
+                # 更新策略
+                agent.update(final_value)
+        
+        # 打印训练信息
+        print(f"Episode {episode + 1}, Reward: {episode_reward:.2f}, Path length: {len(path)}")
+
+def train_mappo(env, agent, num_episodes=1000):
+    """训练MAPPO智能体"""
+    for episode in range(num_episodes):
+        # 重置环境
+        env.reset()
+        current_leos = ["leo1", "leo2"]  # 起始节点
+        destinations = ["leo17", "leo18"]  # 目标节点
+        paths = [[leo] for leo in current_leos]
+        done = [False] * agent.n_agents
+        episode_rewards = [0] * agent.n_agents
+        
+        while not all(done):
+            # 选择动作
+            actions = agent.choose_actions(env, current_leos, destinations)
+            if None in actions:
+                break
+            
+            # 执行动作
+            next_leos = []
+            for i, (current_leo, action) in enumerate(zip(current_leos, actions)):
+                if not done[i]:
+                    next_leo = list(env.leo_nodes.keys())[action]
+                    next_state, reward, d, info = env.step(current_leo, action, paths[i])
+                    
+                    # 存储奖励和mask
+                    agent.rewards[i].append(reward)
+                    agent.masks[i].append(1 - d)
+                    
+                    # 更新状态
+                    next_leos.append(next_leo)
+                    paths[i].append(next_leo)
+                    episode_rewards[i] += reward
+                    done[i] = d
+                else:
+                    next_leos.append(current_leos[i])
+            
+            current_leos = next_leos
+            
+            if all(done):
+                # 获取最终状态值
+                final_states = []
+                for current_leo in current_leos:
+                    state = env._get_state(current_leo)  # 使用_get_state而不是get_state
+                    state = torch.FloatTensor(state).unsqueeze(0).to(agent.device)
+                    final_states.append(state)
+                final_states = torch.cat(final_states, dim=0)
+                
+                with torch.no_grad():
+                    _, final_values = agent.network(final_states)
+                # 更新策略
+                agent.update(final_values)
+        
+        # 打印训练信息
+        avg_reward = sum(episode_rewards) / agent.n_agents
+        avg_path_length = sum(len(p) for p in paths) / agent.n_agents
+        print(f"Episode {episode + 1}, Average Reward: {avg_reward:.2f}, Average Path length: {avg_path_length:.2f}")
+
 if __name__ == "__main__":
     # 训练并评估所有算法
     algorithms = ['dqn', 'ppo', 'mappo']
