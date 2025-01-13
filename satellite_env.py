@@ -457,13 +457,20 @@ class SatelliteEnv:
         queue_utilization = len(link.packets['in_queue']) / link.max_packets if link.max_packets > 0 else 0
         bandwidth_utilization = link.traffic / QUEUE_CAPACITY if QUEUE_CAPACITY > 0 else 0
         
+        # 计算丢包率 (修改这部分)
+        total_packets = len(accepted_packets) + len(dropped_packets)
+        if total_packets > 0:
+            drop_rate = (len(dropped_packets) + len(lost_packets)) / total_packets * 100
+        else:
+            drop_rate = 0.0
+        
         # 准备性能指标
         link_stats = {
             'delay': metrics['delay'],
             'bandwidth': metrics['bandwidth'],
-            'loss': metrics['loss'] * 100,  # 转换为百分比
-            'queue_utilization': queue_utilization * 100,  # 转换为百分比
-            'bandwidth_utilization': bandwidth_utilization * 100,  # 转换为百分比
+            'loss': drop_rate,  # 使用新计算的丢包率
+            'queue_utilization': queue_utilization * 100,
+            'bandwidth_utilization': bandwidth_utilization * 100,
             'packets_in_queue': len(link.packets['in_queue']),
             'packets_processed': len(processed_packets),
             'packets_dropped': len(dropped_packets),
