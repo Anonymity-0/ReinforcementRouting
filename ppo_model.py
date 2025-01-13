@@ -60,30 +60,20 @@ class PPOAgent:
         """获取状态表示"""
         return env.get_state(current_leo, destination_leo)
         
-    def choose_action(self, state, available_actions, env, current_leo, destination, path):
+    def choose_action(self, env, current_leo, destination):
         """选择动作"""
-        if len(available_actions) == 0:
+        available_actions = env.get_available_actions(current_leo)
+        if not available_actions:
             return None
-            
-        # 移除会导致环路的动作
-        non_loop_actions = [a for a in available_actions if self.leo_names[a] not in path]
-        if not non_loop_actions:
-            return None
-            
-        # 获取候选动作
-        candidate_actions = env.get_candidate_actions(current_leo, destination, non_loop_actions)
         
-        state = torch.FloatTensor(state).to(self.device)
+        # 获取状态
+        state = env._get_state(current_leo)
+        state = torch.FloatTensor(state).unsqueeze(0)
+        
         with torch.no_grad():
             action_probs, value = self.actor_critic(state)
         
-        # 只考虑可用动作的概率分布
-        mask = torch.zeros_like(action_probs)
-        mask[candidate_actions] = 1
-        masked_probs = action_probs * mask
-        masked_probs = masked_probs / masked_probs.sum()
-        
-        dist = Categorical(masked_probs)
+        dist = Categorical(action_probs)
         action = dist.sample()
         
         # 存储经验
