@@ -437,11 +437,14 @@ class SatelliteEnv:
         
         # 3. 丢包率计算
         if link.max_packets > 0:
+            # 队列丢包率计算
             queue_drop_rate = len(link.packets['dropped']) / max(1, (len(link.packets['in_queue']) + 
                                                                    len(link.packets['dropped'])))
         else:
             queue_drop_rate = 0
         
+        # 基础丢包率随链路利用率非线性增长
+        link_utilization = link.traffic / QUEUE_CAPACITY
         base_loss_rate = link.base_loss * (1 + link_utilization)
         weather_factor = link.weather_factor
         transmission_loss_rate = base_loss_rate * weather_factor
