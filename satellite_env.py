@@ -694,15 +694,22 @@ class SatelliteEnv:
         source_meo = self.leo_to_meo[source]
         dest_meo = self.leo_to_meo[destination]
         
-        # 如果在同一MEO区域，使用普通的最短路径算法
+        # 如果在同一MEO区域，使用改进的k最短路径算法
         if source_meo == dest_meo:
             paths = []
-            excluded_nodes = set()
+            excluded_edges = set()  # 使用边而不是节点来避免
             for _ in range(k):
-                path, _ = self._dijkstra(source, destination, excluded_nodes)
-                if path and len(path) >= 2:
-                    paths.append(path)
-                    excluded_nodes.update(path[1:-1])
+                # 使用当前的excluded_edges找到最短路径
+                path = self._modified_dijkstra(source, destination, excluded_edges)
+                if not path or len(path) < 2:
+                    break
+                paths.append(path)
+                
+                # 从当前路径中随机选择一条边加入到excluded_edges
+                for i in range(len(path)-1):
+                    excluded_edges.add((path[i], path[i+1]))
+                    excluded_edges.add((path[i+1], path[i]))  # 双向都要排除
+                
             return paths
 
         # 找到交叉区域节点
@@ -716,14 +723,12 @@ class SatelliteEnv:
                     cross_region.add(leo1)
                     cross_region.add(leo2)
         
-        
         if not cross_region:
             # 如果没有直接的交叉区域，尝试通过中间MEO区域寻找路径
             all_meos = set(self.leo_to_meo.values())
             intermediate_meos = all_meos - {source_meo, dest_meo}
             
             for inter_meo in intermediate_meos:
-                # 找到与源MEO和目标MEO相邻的节点
                 source_boundary = self._find_boundary_between_meos(source_meo, inter_meo)
                 dest_boundary = self._find_boundary_between_meos(inter_meo, dest_meo)
                 
@@ -734,35 +739,86 @@ class SatelliteEnv:
         if not cross_region:
             return []
         
-        # 使用交叉区域节点构建路径
+        # 使用交叉区域节点构建多条不同的路径
         paths = []
-        for boundary_leo in cross_region:
-            # 源到边界的路径
-            source_paths = []
-            excluded_nodes = set()
-            for _ in range(k):
-                path1, _ = self._dijkstra(source, boundary_leo, excluded_nodes)
-                if path1 and len(path1) >= 2:
-                    source_paths.append(path1)
-                    excluded_nodes.update(path1[1:-1])
-            
-            # 边界到目标的路径
-            dest_paths = []
-            excluded_nodes = set()
-            for _ in range(k):
-                path2, _ = self._dijkstra(boundary_leo, destination, excluded_nodes)
-                if path2 and len(path2) >= 2:
-                    dest_paths.append(path2)
-                    excluded_nodes.update(path2[1:-1])
-            
-            # 组合路径
-            for path1 in source_paths:
-                for path2 in dest_paths:
-                    combined_path = path1[:-1] + path2
-                    if len(combined_path) <= MAX_PATH_LENGTH:
-                        paths.append(combined_path)
+        used_paths = set()  # 用于跟踪已使用的路径
         
-        return paths[:k]  # 返回最多k条路径
+        for boundary_leo in cross_region:
+            excluded_edges = set()
+            
+            for _ in range(k):
+                # 寻找源到边界的路径
+                path1 = self._modified_dijkstra(source, boundary_leo, excluded_edges)
+                if not path1:
+                    continue
+                    
+                # 寻找边界到目标的路径
+                path2 = self._modified_dijkstra(boundary_leo, destination, excluded_edges)
+                if not path2:
+                    continue
+                
+                # 组合完整路径
+                complete_path = path1[:-1] + path2
+                path_key = tuple(complete_path)  # 转换为tuple以便用作set的元素
+                
+                # 检查路径是否已存在且长度是否合适
+                if path_key not in used_paths and len(complete_path) <= MAX_PATH_LENGTH:
+                    paths.append(complete_path)
+                    used_paths.add(path_key)
+                    
+                    # 随机选择一条边加入到excluded_edges
+                    if len(complete_path) > 1:
+                        i = random.randint(0, len(complete_path)-2)
+                        excluded_edges.add((complete_path[i], complete_path[i+1]))
+                        excluded_edges.add((complete_path[i+1], complete_path[i]))
+            
+        return paths[:k]
+
+    def _modified_dijkstra(self, source, target, excluded_edges):
+        """修改后的Dijkstra算法，考虑被排除的边"""
+        distances = {node: float('infinity') for node in self.leo_nodes}
+        distances[source] = 0
+        predecessors = {node: None for node in self.leo_nodes}
+        unvisited = set(self.leo_nodes.keys())
+        
+        while unvisited:
+            current = min(unvisited, key=lambda x: distances[x])
+            
+            if current == target:
+                break
+            
+            unvisited.remove(current)
+            
+            if distances[current] == float('infinity'):
+                break
+            
+            # 检查邻居节点，排除被禁用的边
+            for neighbor in self.leo_neighbors[current]:
+                if (current, neighbor) in excluded_edges:
+                    continue
+                    
+                metrics = self._calculate_link_metrics(current, neighbor)
+                if not metrics:
+                    continue
+                    
+                distance = distances[current] + metrics['delay']
+                
+                if distance < distances[neighbor]:
+                    distances[neighbor] = distance
+                    predecessors[neighbor] = current
+        
+        # 构建路径
+        if target not in predecessors or predecessors[target] is None:
+            return None
+        
+        path = []
+        current = target
+        while current is not None:
+            path.append(current)
+            current = predecessors[current]
+        
+        path.reverse()
+        return path
 
     def _find_boundary_between_meos(self, meo1, meo2):
         """找到两个MEO区域之间的边界节点"""
