@@ -95,21 +95,12 @@ def train_dqn():
                 step += 1
                 
                 # 收集当前链路的性能指标
-                if info and 'next_leo' in info:
-                    metrics = env._calculate_link_metrics(current_leo, info['next_leo'])
-                    if metrics:
-                        episode_metrics['delays'].append(metrics['delay'])
-                        episode_metrics['bandwidth_utils'].append(
-                            env.links_dict.get((current_leo, info['next_leo']) or 
-                            (info['next_leo'], current_leo)).traffic / QUEUE_CAPACITY
-                        )
-                        episode_metrics['loss_rates'].append(metrics['loss'])
-                        episode_metrics['queue_utils'].append(
-                            len(env.links_dict.get((current_leo, info['next_leo']) or 
-                            (info['next_leo'], current_leo)).packets['in_queue']) / 
-                            env.links_dict.get((current_leo, info['next_leo']) or 
-                            (info['next_leo'], current_leo)).max_packets
-                        )
+                if info and 'link_stats' in info:
+                    stats = info['link_stats']
+                    episode_metrics['delays'].append(stats['delay'])
+                    episode_metrics['bandwidth_utils'].append(stats['queue_utilization'])
+                    episode_metrics['loss_rates'].append(stats['loss'])
+                    episode_metrics['queue_utils'].append(stats['queue_utilization'])
                 
             # 计算并记录本回合的平均指标
             if episode_metrics['delays']:
@@ -235,6 +226,14 @@ def evaluate_model(model_path, num_episodes=100):
         total_rewards = []
         path_lengths = []
         
+        # 添加性能指标统计
+        evaluation_metrics = {
+            'delays': [],
+            'bandwidth_utils': [],
+            'loss_rates': [],
+            'queue_utils': []
+        }
+        
         for episode in range(num_episodes):
             state_size, action_size = env.reset()
             
@@ -247,6 +246,13 @@ def evaluate_model(model_path, num_episodes=100):
             current_leo = source
             total_reward = 0
             step = 0
+            
+            episode_metrics = {
+                'delays': [],
+                'bandwidth_utils': [],
+                'loss_rates': [],
+                'queue_utils': []
+            }
             
             while step < MAX_PATH_LENGTH:
                 state = agent.get_state(env, current_leo, destination)
@@ -269,9 +275,21 @@ def evaluate_model(model_path, num_episodes=100):
                     break
                     
                 step += 1
-            
-            total_rewards.append(total_reward)
-            path_lengths.append(len(path))
+                
+                # 收集性能指标
+                if info and 'link_stats' in info:
+                    stats = info['link_stats']
+                    episode_metrics['delays'].append(stats['delay'])
+                    episode_metrics['bandwidth_utils'].append(stats['queue_utilization'])
+                    episode_metrics['loss_rates'].append(stats['loss'])
+                    episode_metrics['queue_utils'].append(stats['queue_utilization'])
+                
+            # 计算并存储本回合的平均指标
+            if episode_metrics['delays']:
+                evaluation_metrics['delays'].extend(episode_metrics['delays'])
+                evaluation_metrics['bandwidth_utils'].extend(episode_metrics['bandwidth_utils'])
+                evaluation_metrics['loss_rates'].extend(episode_metrics['loss_rates'])
+                evaluation_metrics['queue_utils'].extend(episode_metrics['queue_utils'])
             
             if episode % 10 == 0:
                 print(f"\nEpisode {episode}/{num_episodes}")
@@ -293,16 +311,21 @@ def evaluate_model(model_path, num_episodes=100):
                 meo_switches = sum(1 for i in range(len(path)-1) 
                                  if env.leo_to_meo[path[i]] != env.leo_to_meo[path[i+1]])
                 print(f"MEO区域切换次数: {meo_switches}")
-        
-        # 打印评估结果
-        success_rate = success_count / num_episodes * 100
-        avg_reward = np.mean(total_rewards)
-        avg_path_length = np.mean(path_lengths)
-        
-        print("\n评估结果:")
-        print(f"成功率: {success_rate:.2f}%")
-        print(f"平均奖励: {avg_reward:.2f}")
-        print(f"平均路径长度: {avg_path_length:.2f}")
+                
+                # 打印性能指标
+                if episode_metrics['delays']:
+                    print("\n网络性能指标:")
+                    print(f"平均延迟: {np.mean(episode_metrics['delays']):.2f} ms")
+                    print(f"平均带宽利用率: {np.mean(episode_metrics['bandwidth_utils'])*100:.2f}%")
+                    print(f"平均丢包率: {np.mean(episode_metrics['loss_rates']):.2f}%")
+                    print(f"平均队列利用率: {np.mean(episode_metrics['queue_utils'])*100:.2f}%")
+            
+        # 打印总体评估结果
+        print("\n总体网络性能:")
+        print(f"平均延迟: {np.mean(evaluation_metrics['delays']):.2f} ms")
+        print(f"平均带宽利用率: {np.mean(evaluation_metrics['bandwidth_utils'])*100:.2f}%")
+        print(f"平均丢包率: {np.mean(evaluation_metrics['loss_rates']):.2f}%")
+        print(f"平均队列利用率: {np.mean(evaluation_metrics['queue_utils'])*100:.2f}%")
         
     except Exception as e:
         print(f"评估过程出错: {str(e)}")
