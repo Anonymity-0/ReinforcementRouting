@@ -261,6 +261,16 @@ def plot_training_curves(algo_name, stats):
 
 def train_ppo(env, agent, num_episodes=1000):
     """训练PPO智能体"""
+    # 训练统计
+    stats = {
+        'episode_rewards': [],
+        'path_lengths': [],
+        'delays': [],
+        'bandwidths': [],
+        'losses': [],
+        'success_rate': []
+    }
+    
     for episode in range(num_episodes):
         # 重置环境
         env.reset()
@@ -269,6 +279,7 @@ def train_ppo(env, agent, num_episodes=1000):
         path = [current_leo]
         done = False
         episode_reward = 0
+        metrics_history = defaultdict(list)
         
         while not done:
             # 选择动作
@@ -279,6 +290,11 @@ def train_ppo(env, agent, num_episodes=1000):
             # 执行动作
             next_leo = list(env.leo_nodes.keys())[action]
             next_state, reward, done, info = env.step(current_leo, action, path)
+            
+            # 记录性能指标
+            metrics = info.get('link_stats', {})
+            for key in ['delay', 'bandwidth', 'loss']:
+                metrics_history[key].append(metrics.get(key, 0))
             
             # 存储奖励和mask
             agent.rewards.append(reward)
@@ -291,15 +307,32 @@ def train_ppo(env, agent, num_episodes=1000):
             
             if done:
                 # 获取最终状态值
-                final_state = env._get_state(current_leo)  # 使用_get_state而不是get_state
+                final_state = env._get_state(current_leo)
                 final_state = torch.FloatTensor(final_state).unsqueeze(0).to(agent.device)
                 with torch.no_grad():
                     _, final_value = agent.actor_critic(final_state)
                 # 更新策略
                 agent.update(final_value)
         
+        # 更新统计信息
+        stats['episode_rewards'].append(episode_reward)
+        stats['path_lengths'].append(len(path))
+        stats['delays'].append(np.mean(metrics_history['delay']))
+        stats['bandwidths'].append(np.mean(metrics_history['bandwidth']))
+        stats['losses'].append(np.mean(metrics_history['loss']))
+        stats['success_rate'].append(1 if current_leo == destination else 0)
+        
         # 打印训练信息
-        print(f"Episode {episode + 1}, Reward: {episode_reward:.2f}, Path length: {len(path)}")
+        print(f"\nEpisode {episode + 1}/{num_episodes}")
+        print(f"奖励: {episode_reward:.2f}")
+        print(f"路径长度: {len(path)}")
+        print(f"平均延迟: {np.mean(metrics_history['delay']):.2f} ms")
+        print(f"平均带宽: {np.mean(metrics_history['bandwidth']):.2f} MHz")
+        print(f"平均丢包率: {np.mean(metrics_history['loss']):.2f}%")
+        print(f"是否成功: {'是' if current_leo == destination else '否'}")
+        print(f"路径: {' -> '.join(path)}")
+    
+    return stats
 
 def train_mappo(env, agent, num_episodes=1000):
     """训练MAPPO智能体"""

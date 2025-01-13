@@ -201,7 +201,7 @@ class MEOController:
 class SatelliteEnv:
     def __init__(self):
         self.reset()
-        self.current_data_rate = DATA_GENERATION_RATE  # 添加这一行
+        self.current_data_rate = DATA_GENERATION_RATE
         
     def reset(self):
         """重置环境状态"""
@@ -663,8 +663,12 @@ class SatelliteEnv:
         """获取LEO到MEO的映射关系"""
         return self.leo_to_meo 
 
+    def get_state(self, current_leo):
+        """获取当前状态向量的公共接口"""
+        return self._get_state(current_leo)
+
     def _get_state(self, current_leo):
-        """获取当前状态向量"""
+        """获取当前状态向量的内部实现"""
         state = []
         
         # 1. 当前节点的队列状态
@@ -709,6 +713,7 @@ class SatelliteEnv:
             state.append(0)
         
         return state[:18]  # 确保返回18维向量
+
     def _find_k_shortest_paths_with_cross_region(self, source, destination, k, graph):
         """基于最小交叉区域的k最短路径算法"""
         # 获取源和目标的MEO区域
