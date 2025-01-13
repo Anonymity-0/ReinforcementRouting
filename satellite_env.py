@@ -201,7 +201,14 @@ class MEOController:
 class SatelliteEnv:
     def __init__(self):
         self.reset()
-        self.current_data_rate = DATA_GENERATION_RATE  # 添加这一行
+        self.current_data_rate = DATA_GENERATION_RATE
+        # 添加数据包统计
+        self.packet_stats = {
+            'sent': set(),
+            'received': set(),
+            'dropped': set(),
+            'lost': set()
+        }
         
     def reset(self):
         """重置环境状态"""
@@ -452,6 +459,12 @@ class SatelliteEnv:
             'link_stats': link_stats,
             'path_stats': self.path_stats
         }
+        
+        # 更新全局数据包统计
+        self.packet_stats['sent'].update(accepted_packets)
+        self.packet_stats['dropped'].update(dropped_packets)
+        self.packet_stats['lost'].update(lost_packets)
+        self.packet_stats['received'].update(processed_packets - lost_packets)
         
         return self._get_state(next_leo), reward, done, info
 
@@ -775,3 +788,20 @@ class SatelliteEnv:
             return available_actions
         
         return list(candidate_actions)  
+
+    def get_sent_packets(self):
+        """获取已发送的数据包"""
+        return self.path_stats['sent']
+
+    def get_received_packets(self):
+        """获取已接收的数据包"""
+        return self.path_stats['received']
+
+    def get_dropped_packets(self):
+        """获取队列丢弃的数据包"""
+        return self.path_stats['dropped']
+
+    def get_lost_packets(self):
+        """获取传输丢失的数据包"""
+        return self.path_stats['lost']
+    
