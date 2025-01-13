@@ -631,44 +631,103 @@ class SatelliteEnv:
         return final_packets
 
     def _calculate_reward(self, next_leo, destination, metrics, path):
-        """计算奖励"""
+        """计算综合奖励值
+        
+        使用多目标优化方法，将多个性能指标组合成一个综合奖励值
+        R = w1*R_distance + w2*R_quality + w3*R_loop + w4*R_region + w5*R_congestion
+        
+        Args:
+            next_leo: 下一跳卫星节点
+            destination: 目标节点
+            metrics: 链路性能指标
+            path: 当前路径
+        
+        Returns:
+            float: 综合奖励值
+        """
         try:
-            # 基础奖励
+            # 1. 距离奖励 (使用指数衰减)
             if next_leo == destination:
                 path_efficiency = max(0, (MAX_PATH_LENGTH - len(path)) / MAX_PATH_LENGTH)
-                return 50.0 * path_efficiency  # 根据路径长度效率给予奖励
+                return 100.0 * path_efficiency  # 到达目标时给予高奖励
             
-            # 计算到目标的距离变化
-            # 添加路径长度检查
-            if len(path) < 2:
-                prev_distance = float('inf')  # 如果是路径起点，设置前一个距离为无穷大
-            else:
-                prev_distance = len(self._modified_dijkstra(path[-2], destination, set()) or [])
-            
+            prev_distance = float('inf') if len(path) < 2 else len(self._modified_dijkstra(path[-2], destination, set()) or [])
             curr_distance = len(self._modified_dijkstra(next_leo, destination, set()) or [])
-            distance_reward = (prev_distance - curr_distance) * 2
             
-            # 链路质量奖励
-            link_quality_reward = 0
+            # 使用指数函数计算距离奖励
+            distance_delta = prev_distance - curr_distance
+            distance_reward = 20.0 * (1 - math.exp(-max(0, distance_delta)))
+            
+            # 2. 链路质量奖励 (使用加权调和平均)
             if metrics:
-                delay_penalty = -metrics['delay'] / 100
-                bandwidth_reward = metrics['bandwidth'] / 20
-                loss_penalty = -metrics['loss'] / 50
-                link_quality_reward = delay_penalty + bandwidth_reward + loss_penalty
+                # 归一化各项指标
+                norm_delay = min(1.0, metrics['delay'] / 100)
+                norm_bandwidth = min(1.0, metrics['bandwidth'] / 20)
+                norm_loss = min(1.0, metrics['loss'] / 100)
+                
+                # 权重设置
+                w_delay, w_bw, w_loss = 0.5, 0.3, 0.2
+                
+                # 使用调和平均数计算链路质量 (对极值更敏感)
+                quality_score = 3 / (w_delay/(1-norm_delay) + w_bw/norm_bandwidth + w_loss/(1-norm_loss))
+                link_quality_reward = 15.0 * (quality_score - 0.5)  # 将分数映射到奖励值
+            else:
+                link_quality_reward = -15.0
             
-            # 路径循环惩罚
-            loop_penalty = -10 if next_leo in path[:-1] else 0
+            # 3. 路径循环惩罚 (使用指数惩罚)
+            if next_leo in path[:-1]:
+                loop_count = path[:-1].count(next_leo)
+                loop_penalty = -10.0 * math.exp(loop_count - 1)
+            else:
+                loop_penalty = 0
             
-            # 区域导向奖励
-            region_reward = 2.0 if self.leo_to_meo[next_leo] == self.leo_to_meo[destination] else 0
+            # 4. 区域导向奖励 (使用余弦相似度)
+            def get_region_vector(leo_name):
+                meo_name = self.leo_to_meo[leo_name]
+                meo_num = int(meo_name.replace('meo', ''))
+                return np.array([math.cos(2*math.pi*meo_num/len(self.meo_nodes)), 
+                               math.sin(2*math.pi*meo_num/len(self.meo_nodes))])
             
-            total_reward = distance_reward + link_quality_reward + loop_penalty + region_reward
+            next_vec = get_region_vector(next_leo)
+            dest_vec = get_region_vector(destination)
+            region_similarity = np.dot(next_vec, dest_vec) / (np.linalg.norm(next_vec) * np.linalg.norm(dest_vec))
+            region_reward = 10.0 * (region_similarity + 1) / 2  # 映射到[0,10]范围
             
-            return total_reward
+            # 5. 拥塞避免奖励 (使用sigmoid函数)
+            if metrics:
+                link = (self.links_dict.get((path[-1], next_leo)) or 
+                       self.links_dict.get((next_leo, path[-1])))
+                if link:
+                    queue_ratio = len(link.packets['in_queue']) / link.max_packets
+                    congestion_penalty = -10.0 / (1 + math.exp(-10 * (queue_ratio - 0.7)))  # sigmoid函数
+                else:
+                    congestion_penalty = -5.0
+            else:
+                congestion_penalty = -5.0
+            
+            # 组合所有奖励项
+            weights = {
+                'distance': 0.35,
+                'quality': 0.25,
+                'loop': 0.15,
+                'region': 0.15,
+                'congestion': 0.10
+            }
+            
+            total_reward = (
+                weights['distance'] * distance_reward +
+                weights['quality'] * link_quality_reward +
+                weights['loop'] * loop_penalty +
+                weights['region'] * region_reward +
+                weights['congestion'] * congestion_penalty
+            )
+            
+            # 使用tanh函数限制总奖励范围
+            return 50.0 * math.tanh(total_reward / 50.0)
             
         except Exception as e:
             print(f"Error in _calculate_reward: {str(e)}")
-            return -1  # 返回一个默认的负奖励值
+            return -1.0
 
     def get_state_size(self):
         """获取状态空间大小"""
