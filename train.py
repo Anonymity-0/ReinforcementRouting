@@ -150,34 +150,22 @@ def train_dqn():
             
             # 每10个回合打印一次详细信息
             if episode % 10 == 0:
-                print(f"\nEpisode {episode}/{NUM_EPISODES}")
-                source_meo = env.leo_to_meo[source]
-                dest_meo = env.leo_to_meo[destination]
-                print(f"源节点: {source}(MEO区域: {source_meo}) -> 目标节点: {destination}(MEO区域: {dest_meo})")
+                # 构建path_stats字典
+                path_stats = {
+                    'sent': info.get('packets_sent', []),
+                    'received': info.get('packets_received', []),
+                    'dropped': info.get('packets_dropped', []),
+                    'lost': info.get('packets_lost', [])
+                }
                 
-                # 打印完整路径及其MEO区域信息
-                path_info = []
-                for leo in path:
-                    meo = env.leo_to_meo[leo]
-                    path_info.append(f"{leo}({meo})")
-                print(f"路径: {' -> '.join(path_info)}")
+                # 构建metrics字典
+                metrics = {
+                    'delay': np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0,
+                    'bandwidth': np.mean(episode_metrics['bandwidth_utils']) if episode_metrics['bandwidth_utils'] else 0,
+                    'rewards': episode_rewards
+                }
                 
-                print(f"总奖励: {total_reward:.2f}")
-                print(f"平均奖励: {avg_reward:.2f}")
-                print(f"探索率: {agent.epsilon:.4f}")
-                
-                # 打印网络性能指标
-                if episode_metrics['delays']:
-                    print("\n网络性能指标:")
-                    print(f"平均延迟: {np.mean(episode_metrics['delays']):.2f} ms")
-                    print(f"平均带宽利用率: {np.mean(episode_metrics['bandwidth_utils'])*100:.2f}%")
-                    print(f"平均丢包率: {np.mean(episode_metrics['loss_rates']):.2f}%")
-                    print(f"平均队列利用率: {np.mean(episode_metrics['queue_utils'])*100:.2f}%")
-                    
-                    # 添加MEO区域切换统计
-                    meo_switches = sum(1 for i in range(len(path)-1) 
-                                     if env.leo_to_meo[path[i]] != env.leo_to_meo[path[i+1]])
-                    print(f"MEO区域切换次数: {meo_switches}")
+                print_episode_stats(episode, NUM_EPISODES, path, path_stats, metrics, agent, env)
         
         # 训练结束后绘制性能指标曲线
         plt.figure(figsize=(15, 10))
@@ -401,16 +389,14 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
     print(f"探索率: {agent.epsilon:.3f}")
     print("-" * 50)
 
-def train():
-    """训练入口函数"""
+if __name__ == "__main__":
     start_time = time.time()
-    
     try:
         # 训练模型
         train_dqn()
         
-        # 评估最佳模型
-        evaluate_model('best_model.pth')
+        # 评估最终模型
+        evaluate_model('models/final_model.pth')
         
     except Exception as e:
         print(f"训练过程出错: {str(e)}")
@@ -420,6 +406,3 @@ def train():
         minutes = int((duration % 3600) // 60)
         seconds = int(duration % 60)
         print(f"\n总训练时间: {hours}小时 {minutes}分钟 {seconds}秒")
-
-if __name__ == "__main__":
-    train()
