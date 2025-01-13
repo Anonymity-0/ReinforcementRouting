@@ -3,353 +3,243 @@ import numpy as np
 from satellite_env import SatelliteEnv
 from dqn_model import DQNAgent
 from config import *
-import random
 import time
-from collections import deque
-import matplotlib.pyplot as plt
-import os
+import random
+from collections import defaultdict
 
 def train_dqn():
-    """训练DQN代理"""
-    # 确保模型保存目录存在
-    model_dir = "models"
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-        
-    print("初始化环境...")
+    """训练DQN模型"""
+    print("\n开始训练DQN模型...")
+    
+    # 初始化环境
     env = SatelliteEnv()
     state_size, action_size = env.reset()
     
-    print(f"状态空间大小: {state_size}")
-    print(f"动作空间大小: {action_size}")
-    
-    # 初始化DQN代理
+    # 初始化智能体
     agent = DQNAgent(state_size, action_size, env.get_leo_names(), env.get_leo_to_meo_mapping())
     
     # 训练统计
     episode_rewards = []
-    avg_rewards = deque(maxlen=100)
-    best_avg_reward = float('-inf')
+    path_lengths = []
+    performance_stats = defaultdict(list)
     
-    # 添加网络指标统计
-    network_metrics = {
-        'avg_delay': [],
-        'avg_bandwidth_util': [],
-        'avg_loss_rate': [],
-        'avg_queue_util': []
-    }
+    # 开始训练
+    for episode in range(NUM_EPISODES):
+        print(f"\nEpisode {episode + 1}/{NUM_EPISODES}")
+        episode_start = time.time()
+        
+        # 重置环境
+        env.reset()
+        
+        # 随机选择源节点和目标节点
+        all_leos = list(env.leo_nodes.keys())
+        source = random.choice(all_leos)
+        destination = random.choice([leo for leo in all_leos if leo != source])
+        
+        print(f"路径: {source} -> {destination}")
+        print(f"源MEO区域: {env.leo_to_meo[source]}, 目标MEO区域: {env.leo_to_meo[destination]}")
+        
+        # 初始化路径和奖励
+        path = [source]
+        total_reward = 0
+        current_leo = source
+        
+        # 记录性能指标
+        episode_metrics = {
+            'delays': [],
+            'bandwidths': [],
+            'loss_rates': [],
+            'queue_utilizations': []
+        }
+        
+        # 执行一个episode
+        while len(path) < MAX_PATH_LENGTH:
+            # 获取当前状态
+            state = agent.get_state(env, current_leo, destination)
+            
+            # 获取可用动作
+            available_actions = env.get_available_actions(current_leo)
+            if not available_actions:
+                break
+                
+            # 选择动作
+            action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
+            if action is None:
+                break
+                
+            # 执行动作
+            next_state, reward, done, info = env.step(current_leo, action, path)
+            
+            # 记录性能指标
+            metrics = info.get('link_stats', {})
+            episode_metrics['delays'].append(metrics.get('delay', 0))
+            episode_metrics['bandwidths'].append(metrics.get('bandwidth', 0))
+            episode_metrics['loss_rates'].append(metrics.get('loss', 0))
+            episode_metrics['queue_utilizations'].append(metrics.get('queue_utilization', 0))
+            
+            # 存储经验
+            agent.memorize(state, action, reward, next_state, done)
+            
+            # 更新状态和奖励
+            total_reward += reward
+            current_leo = list(env.leo_nodes.keys())[action]
+            path.append(current_leo)
+            
+            # 经验回放
+            agent.replay(BATCH_SIZE)
+            
+            if done or current_leo == destination:
+                break
+        
+        # 更新目标网络
+        if episode % TARGET_UPDATE == 0:
+            agent.update_target_network()
+        
+        # 记录统计信息
+        episode_rewards.append(total_reward)
+        path_lengths.append(len(path))
+        
+        # 计算平均性能指标
+        avg_delay = np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0
+        avg_bandwidth = np.mean(episode_metrics['bandwidths']) if episode_metrics['bandwidths'] else 0
+        avg_loss = np.mean(episode_metrics['loss_rates']) if episode_metrics['loss_rates'] else 0
+        avg_queue = np.mean(episode_metrics['queue_utilizations']) if episode_metrics['queue_utilizations'] else 0
+        
+        performance_stats['delay'].append(avg_delay)
+        performance_stats['bandwidth'].append(avg_bandwidth)
+        performance_stats['loss'].append(avg_loss)
+        performance_stats['queue'].append(avg_queue)
+        
+        # 输出episode信息
+        episode_duration = time.time() - episode_start
+        print(f"\n路径详情:")
+        print(f"完整路径: {' -> '.join(path)}")
+        print(f"路径长度: {len(path)}")
+        print(f"总奖励: {total_reward:.2f}")
+        print(f"探索率: {agent.epsilon:.4f}")
+        
+        print("\n性能指标:")
+        print(f"平均延迟: {avg_delay:.2f} ms")
+        print(f"平均带宽: {avg_bandwidth:.2f} MHz")
+        print(f"平均丢包率: {avg_loss:.2f}%")
+        print(f"平均队列利用率: {avg_queue:.2f}%")
+        
+        # 每100个episode输出统计信息
+        if (episode + 1) % 100 == 0:
+            print("\n阶段性统计:")
+            print(f"最近100个episode平均奖励: {np.mean(episode_rewards[-100:]):.2f}")
+            print(f"最近100个episode平均路径长度: {np.mean(path_lengths[-100:]):.2f}")
+            print(f"最近100个episode平均延迟: {np.mean(performance_stats['delay'][-100:]):.2f} ms")
+            print(f"最近100个episode平均带宽: {np.mean(performance_stats['bandwidth'][-100:]):.2f} MHz")
+            print(f"最近100个episode平均丢包率: {np.mean(performance_stats['loss'][-100:]):.2f}%")
+            
+            # 保存检查点
+            torch.save({
+                'episode': episode,
+                'model_state_dict': agent.policy_net.state_dict(),
+                'optimizer_state_dict': agent.optimizer.state_dict(),
+                'epsilon': agent.epsilon,
+                'rewards': episode_rewards,
+                'performance_stats': dict(performance_stats)
+            }, f'models/checkpoint_episode_{episode+1}.pth')
     
-    print("\n开始训练...")
-    try:
-        for episode in range(NUM_EPISODES):
-            total_reward = 0
-            episode_metrics = {
-                'delays': [],
-                'bandwidth_utils': [],
-                'loss_rates': [],
-                'queue_utils': []
-            }
-            
-            state_size, action_size = env.reset()
-            
-            # 随机选择源节点和目标节点
-            all_leos = env.get_leo_names()
-            source = random.choice(all_leos)
-            destination = random.choice([leo for leo in all_leos if leo != source])
-            
-            path = [source]
-            current_leo = source
-            step = 0
-            
-            # 初始化episode级别的统计信息
-            episode_packets = {
-                'sent': set(),
-                'received': set(),
-                'dropped': set(),
-                'lost': set()
-            }
-            
-            while step < MAX_PATH_LENGTH:
-                state = agent.get_state(env, current_leo, destination)
-                available_actions = env.get_available_actions(current_leo)
-                action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
-                
-                if action is None:
-                    break
-                    
-                next_leo = env.get_leo_names()[action]
-                next_state, reward, done, info = env.step(current_leo, action, path)
-                
-                # 更新当前episode的数据包统计
-                if 'packets' in info:
-                    episode_packets['sent'].update(info['packets']['sent'])
-                    episode_packets['received'].update(info['packets']['received'])
-                    episode_packets['dropped'].update(info['packets']['dropped'])
-                    episode_packets['lost'].update(info['packets']['lost'])
-                
-                # 获取当前链路的指标
-                current_metrics = None
-                if info and 'link_stats' in info:
-                    stats = info['link_stats']
-                    current_metrics = {
-                        'delay': stats['delay'],
-                        'bandwidth': stats['bandwidth'],
-                        'loss_rate': stats['loss'],
-                        'rewards': [reward]  # 当前步骤的奖励
-                    }
-                    
-                    # 收集指标用于episode统计
-                    episode_metrics['delays'].append(stats['delay'])
-                    episode_metrics['bandwidth_utils'].append(stats['bandwidth_utilization'])
-                    episode_metrics['loss_rates'].append(stats['loss'])
-                    episode_metrics['queue_utils'].append(stats['queue_utilization'])
-                
-                # 打印当前步骤的统计信息
-                print_episode_stats(
-                    episode=episode,
-                    episodes=NUM_EPISODES,
-                    path=path + [next_leo],  # 包含下一个节点
-                    path_stats=episode_packets,
-                    metrics=current_metrics,
-                    agent=agent,
-                    env=env
-                )
-                
-                agent.memorize(state, action, reward, next_state, done)
-                if len(agent.memory) > BATCH_SIZE:
-                    agent.replay(BATCH_SIZE)
-                
-                total_reward += reward
-                current_leo = next_leo
-                path.append(current_leo)
-                
-                if done or current_leo == destination:
-                    break
-                    
-                step += 1
-            
-            # 计算并记录本回合的平均指标
-            if episode_metrics['delays']:
-                network_metrics['avg_delay'].append(np.mean(episode_metrics['delays']))
-                network_metrics['avg_bandwidth_util'].append(np.mean(episode_metrics['bandwidth_utils']))
-                network_metrics['avg_loss_rate'].append(np.mean(episode_metrics['loss_rates']))
-                network_metrics['avg_queue_util'].append(np.mean(episode_metrics['queue_utils']))
-            
-            # 更新目标网络
-            if episode % TARGET_UPDATE == 0:
-                agent.update_target_network()
-            
-            # 记录统计信息
-            episode_rewards.append(total_reward)
-            avg_rewards.append(total_reward)
-            avg_reward = np.mean(avg_rewards)
-            
-            # 计算当前episode的平均指标
-            current_metrics = {
-                'delay': np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0,
-                'bandwidth': np.mean(episode_metrics['bandwidth_utils']) if episode_metrics['bandwidth_utils'] else 0,
-                'loss_rate': np.mean(episode_metrics['loss_rates']) if episode_metrics['loss_rates'] else 0,
-                'rewards': episode_rewards
-            }
-            
-            # 打印本轮统计信息
-            print_episode_stats(
-                episode=episode,
-                episodes=NUM_EPISODES,
-                path=path,
-                path_stats=episode_packets,
-                metrics=current_metrics,
-                agent=agent,
-                env=env
-            )
-            
-        # 训练结束后绘制性能指标曲线
-        plt.figure(figsize=(15, 10))
-        
-        # 绘制奖励曲线
-        plt.subplot(2, 2, 1)
-        plt.plot(episode_rewards)
-        plt.title('训练奖励曲线')
-        plt.xlabel('Episode')
-        plt.ylabel('Total Reward')
-        
-        # 绘制延迟曲线
-        plt.subplot(2, 2, 2)
-        plt.plot(network_metrics['avg_delay'])
-        plt.title('平均延迟变化')
-        plt.xlabel('Episode')
-        plt.ylabel('Delay (ms)')
-        
-        # 绘制带宽利用率曲线
-        plt.subplot(2, 2, 3)
-        plt.plot(network_metrics['avg_bandwidth_util'])
-        plt.title('平均带宽利用率变化')
-        plt.xlabel('Episode')
-        plt.ylabel('Bandwidth Utilization (%)')
-        
-        # 绘制丢包率曲线
-        plt.subplot(2, 2, 4)
-        plt.plot(network_metrics['avg_loss_rate'])
-        plt.title('平均丢包率变化')
-        plt.xlabel('Episode')
-        plt.ylabel('Loss Rate (%)')
-        
-        plt.tight_layout()
-        plt.savefig('training_metrics.png')
-        plt.close()
-        
-        # 保存训练指标数据
-        np.save('network_metrics.npy', network_metrics)
-        
-        print("\n训练完成!")
-        print(f"最佳平均奖励: {best_avg_reward:.2f}")
-        print("\n最终网络性能:")
-        print(f"平均延迟: {np.mean(network_metrics['avg_delay'][-100:]):.2f} ms")
-        print(f"平均带宽利用率: {np.mean(network_metrics['avg_bandwidth_util'][-100:])*100:.2f}%")
-        print(f"平均丢包率: {np.mean(network_metrics['avg_loss_rate'][-100:]):.2f}%")
-        print(f"平均队列利用率: {np.mean(network_metrics['avg_queue_util'][-100:])*100:.2f}%")
-        
-    except KeyboardInterrupt:
-        print("\n训练被用户中断")
-    except Exception as e:
-        print(f"\n训练出错: {str(e)}")
-    finally:
-        # 保存最终模型
-        torch.save(agent.policy_net.state_dict(), os.path.join(model_dir, 'final_model.pth'))
-        print("已保存最终模型")
+    # 保存最终模型
+    torch.save(agent.policy_net.state_dict(), 'models/final_model.pth')
+    
+    return episode_rewards, performance_stats
 
-def evaluate_model(model_path, num_episodes=100):
+def evaluate_model(model_path):
     """评估训练好的模型"""
     print("\n开始评估模型...")
     
-    # 检查模型文件是否存在
-    if not os.path.exists(model_path):
-        print(f"错误: 模型文件 '{model_path}' 不存在")
-        return
+    # 初始化环境和智能体
+    env = SatelliteEnv()
+    state_size, action_size = env.reset()
+    agent = DQNAgent(state_size, action_size, env.get_leo_names(), env.get_leo_to_meo_mapping())
+    
+    # 加载模型
+    agent.policy_net.load_state_dict(torch.load(model_path))
+    agent.epsilon = 0  # 评估时不使用探索
+    
+    # 评估统计
+    test_episodes = 100
+    success_count = 0
+    total_rewards = []
+    path_lengths = []
+    performance_metrics = defaultdict(list)
+    
+    for episode in range(test_episodes):
+        env.reset()
         
-    try:
-        env = SatelliteEnv()
-        state_size, action_size = env.reset()
+        # 随机选择源和目标
+        all_leos = list(env.leo_nodes.keys())
+        source = random.choice(all_leos)
+        destination = random.choice([leo for leo in all_leos if leo != source])
         
-        # 初始化代理并加载模型
-        agent = DQNAgent(state_size, action_size, env.get_leo_names(), env.get_leo_to_meo_mapping())
-        agent.policy_net.load_state_dict(torch.load(model_path))
-        agent.epsilon = 0.0  # 关闭探索
+        path = [source]
+        total_reward = 0
+        current_leo = source
         
-        success_count = 0
-        total_rewards = []
-        path_lengths = []
-        
-        # 添加性能指标统计
-        evaluation_metrics = {
+        # 记录性能指标
+        episode_metrics = {
             'delays': [],
-            'bandwidth_utils': [],
+            'bandwidths': [],
             'loss_rates': [],
-            'queue_utils': []
+            'queue_utilizations': []
         }
         
-        for episode in range(num_episodes):
-            state_size, action_size = env.reset()
+        while len(path) < MAX_PATH_LENGTH:
+            state = agent.get_state(env, current_leo, destination)
+            available_actions = env.get_available_actions(current_leo)
             
-            # 随机选择源节点和目标节点
-            all_leos = env.get_leo_names()
-            source = random.choice(all_leos)
-            destination = random.choice([leo for leo in all_leos if leo != source])
+            if not available_actions:
+                break
+                
+            action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
+            if action is None:
+                break
+                
+            next_state, reward, done, info = env.step(current_leo, action, path)
             
-            path = [source]
-            current_leo = source
-            total_reward = 0
-            step = 0
+            # 记录性能指标
+            metrics = info.get('link_stats', {})
+            episode_metrics['delays'].append(metrics.get('delay', 0))
+            episode_metrics['bandwidths'].append(metrics.get('bandwidth', 0))
+            episode_metrics['loss_rates'].append(metrics.get('loss', 0))
+            episode_metrics['queue_utilizations'].append(metrics.get('queue_utilization', 0))
             
-            episode_metrics = {
-                'delays': [],
-                'bandwidth_utils': [],
-                'loss_rates': [],
-                'queue_utils': []
-            }
+            total_reward += reward
+            current_leo = list(env.leo_nodes.keys())[action]
+            path.append(current_leo)
             
-            while step < MAX_PATH_LENGTH:
-                state = agent.get_state(env, current_leo, destination)
-                available_actions = env.get_available_actions(current_leo)
-                action = agent.choose_action(state, available_actions, env, current_leo, destination, path)
-                
-                if action is None:
-                    break
-                    
-                next_leo = env.get_leo_names()[action]
-                next_state, reward, done, info = env.step(current_leo, action, path)
-                
-                total_reward += reward
-                current_leo = next_leo
-                path.append(current_leo)
-                
-                if done or current_leo == destination:
-                    if current_leo == destination:
-                        success_count += 1
-                    break
-                    
-                step += 1
-                
-                
-    except Exception as e:
-        print(f"评估过程出错: {str(e)}")
-
-def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env):
-    """打印每个episode的统计信息"""
-    print(f"\n训练轮次 {episode + 1}/{episodes}")
-    print(f"路径: {' -> '.join(path)}")
+            if done or current_leo == destination:
+                if current_leo == destination:
+                    success_count += 1
+                break
+        
+        # 记录统计信息
+        total_rewards.append(total_reward)
+        path_lengths.append(len(path))
+        
+        # 计算平均性能指标
+        for metric_name, values in episode_metrics.items():
+            if values:
+                performance_metrics[metric_name].append(np.mean(values))
+        
+        # 输出每个episode的结果
+        print(f"\nTest Episode {episode + 1}:")
+        print(f"路径: {' -> '.join(path)}")
+        print(f"长度: {len(path)}")
+        print(f"奖励: {total_reward:.2f}")
+        print(f"平均延迟: {np.mean(episode_metrics['delays']):.2f} ms")
+        print(f"平均带宽: {np.mean(episode_metrics['bandwidths']):.2f} MHz")
+        print(f"平均丢包率: {np.mean(episode_metrics['loss_rates']):.2f}%")
     
-    # 检查是否有数据包统计
-    if path_stats and path_stats['sent']:
-        # 计算各种包的数量
-        total_sent = len(path_stats['sent'])
-        dropped_packets = len(path_stats['dropped'])
-        lost_packets = len(path_stats['lost'])
-        received_packets = len(path_stats['received'])
-        in_transit_packets = total_sent - (dropped_packets + lost_packets + received_packets)
-        
-        # 计算总丢包率
-        total_lost = dropped_packets + lost_packets
-        total_loss_rate = (total_lost / total_sent) * 100 if total_sent > 0 else 0
-        
-        print(f"\n数据包统计:")
-        print(f"  - 总发送包数: {total_sent}")
-        print(f"  - 成功接收包数: {received_packets}")
-        print(f"  - 总丢失包数: {total_lost}")
-        print(f"  - 在途包数: {in_transit_packets}")
-        
-        print(f"\n性能指标:")
-        print(f"  - 总丢包率: {total_loss_rate:.2f}%")
-        print(f"  - 传输成功率: {(received_packets/total_sent*100):.2f}%" if total_sent > 0 else "  - 传输成功率: 0.00%")
-        print(f"  - 在途率: {(in_transit_packets/total_sent*100):.2f}%" if total_sent > 0 else "  - 在途率: 0.00%")
-        
-        # 打印链路性能指标
-        if metrics:
-            print(f"\n链路指标:")
-            print(f"  - 延迟: {metrics['delay']:.2f} ms")
-            print(f"  - 带宽: {metrics['bandwidth']:.2f} MHz")
-            print(f"  - 丢包率: {metrics['loss_rate']:.2f}%")
-    
-    print(f"\n其他信息:")
-    print(f"路径长度: {len(path)}")
-    print(f"奖励值: {metrics['rewards'][-1]:.2f}")
-    print(f"探索率: {agent.epsilon:.3f}")
-    print("-" * 50)
-
-if __name__ == "__main__":
-    start_time = time.time()
-    try:
-        # 训练模型
-        train_dqn()
-        
-        # 评估最终模型
-        evaluate_model('models/final_model.pth')
-        
-    except Exception as e:
-        print(f"训练过程出错: {str(e)}")
-    finally:
-        duration = time.time() - start_time
-        hours = int(duration // 3600)
-        minutes = int((duration % 3600) // 60)
-        seconds = int(duration % 60)
-        print(f"\n总训练时间: {hours}小时 {minutes}分钟 {seconds}秒")
+    # 输出总体评估结果
+    print("\n评估结果总结:")
+    print(f"成功率: {success_count/test_episodes*100:.2f}%")
+    print(f"平均奖励: {np.mean(total_rewards):.2f}")
+    print(f"平均路径长度: {np.mean(path_lengths):.2f}")
+    print(f"平均延迟: {np.mean(performance_metrics['delays']):.2f} ms")
+    print(f"平均带宽: {np.mean(performance_metrics['bandwidths']):.2f} MHz")
+    print(f"平均丢包率: {np.mean(performance_metrics['loss_rates']):.2f}%")
