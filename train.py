@@ -138,6 +138,7 @@ def train_dqn():
             current_metrics = {
                 'delay': np.mean(episode_metrics['delays']) if episode_metrics['delays'] else 0,
                 'bandwidth': np.mean(episode_metrics['bandwidth_utils']) if episode_metrics['bandwidth_utils'] else 0,
+                'loss_rate': np.mean(episode_metrics['loss_rates']) if episode_metrics['loss_rates'] else 0,
                 'rewards': episode_rewards
             }
             
@@ -146,7 +147,7 @@ def train_dqn():
                 episode=episode,
                 episodes=NUM_EPISODES,
                 path=path,
-                path_stats=episode_packets,  # 使用episode_packets而不是path_stats
+                path_stats=episode_packets,
                 metrics=current_metrics,
                 agent=agent,
                 env=env
@@ -317,7 +318,7 @@ def print_episode_stats(episode, episodes, path, path_stats, metrics, agent, env
             print(f"\n链路指标:")
             print(f"  - 延迟: {metrics['delay']:.2f} ms")
             print(f"  - 带宽: {metrics['bandwidth']:.2f} MHz")
-            print(f"  - 丢包率: {total_loss_rate:.2f}%")
+            print(f"  - 丢包率: {metrics['loss_rate']:.2f}%")
     
     print(f"\n其他信息:")
     print(f"路径长度: {len(path)}")
