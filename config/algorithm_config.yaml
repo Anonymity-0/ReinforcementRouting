@@ -1,0 +1,40 @@
+common:
+  device: "cpu"
+  hidden_dim: 256
+  learning_rate: 5.0e-4
+  batch_size: 4096
+  eval_episodes: 10
+
+ppo:
+  learning_rate: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_param: 0.2
+  num_epochs: 10
+  batch_size: 64
+  value_loss_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  buffer_size: 2048
+  initial_epsilon: 0.3
+  final_epsilon: 0.01
+  initial_temperature: 1.0
+  final_temperature: 0.5
+
+mappo:
+  learning_rate: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_param: 0.2
+  num_epochs: 10
+  batch_size: 64
+  value_loss_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  buffer_size: 2048
+  use_centralized_critic: true
+  use_reward_normalization: true
+  use_advantage_normalization: true
+  use_huber_loss: true
+  use_value_clip: true
+  value_clip_param: 0.2 
