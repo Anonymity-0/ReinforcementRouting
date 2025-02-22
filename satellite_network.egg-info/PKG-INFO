@@ -1,6 +1,0 @@
-Metadata-Version: 2.2
-Name: satellite_network
-Version: 0.1
-Requires-Dist: numpy
-Requires-Dist: gym
-Dynamic: requires-dist

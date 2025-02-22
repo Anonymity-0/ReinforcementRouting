@@ -1,9 +1,0 @@
-link:
-  frequency: 23e9  # 23 GHz
-  bandwidth: 1e9   # 1 GHz
-  transmit_power: 10.0  # 10 W
-  noise_temperature: 290  # 290 K
-  update_interval: 1.0
-  path_loss_model: "free_space"
-  max_range: 5000  # km
-  min_range: 100   # km 
