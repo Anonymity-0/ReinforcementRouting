@@ -1,0 +1,37 @@
+simulation:
+  # 所有算法共用的基本参数
+  common:
+    max_episodes: 1000
+    max_steps: 200
+    step_interval: 0.1
+    metrics_collection_interval: 1.0
+
+  # 网络基本参数
+  network:
+    max_buffer_size: 100
+    max_queue_length: 100
+
+  # 流量参数
+  traffic:
+    packet_size: 1500
+    poisson_lambda: 100.0
+    qos_classes:
+      - name: "delay_sensitive"
+        weight: 0.4
+        delay_threshold: 100
+      - name: "reliability_sensitive"
+        weight: 0.4
+        loss_threshold: 0.05
+      - name: "throughput_sensitive"
+        weight: 0.2
+        throughput_threshold: 100
+
+# 日志配置
+logging:
+  level: DEBUG
+  save_dir: "logs"
+  use_tensorboard: true
+
+# 可视化配置
+visualization:
+  plot_metrics: true 

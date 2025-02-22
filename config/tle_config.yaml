@@ -1,0 +1,23 @@
+topology:
+  type: "tle"
+  tle_file: "tle/Iridium.tle"
+  orbital_planes: 6
+  satellites_per_plane: 11
+  total_satellites: 66
+  max_latitude: 65.0  # 相邻轨道面链路的最大纬度(度)
+
+simulation:
+  # TLE特定的仿真参数
+  network:
+    total_satellites: 66  # Iridium星座实际卫星数
+    orbital_planes: 6
+    satellites_per_plane: 11
+
+  # TLE特定的链路参数
+  link:
+    bandwidth: 1e9  # 带宽(Hz)
+    transmit_power: 10.0
+    noise_temperature: 290
+    path_loss_model:
+      frequency: 23e9  # Ka频段 23GHz
+    capacity: 1e9  # 链路容量(bps) 
